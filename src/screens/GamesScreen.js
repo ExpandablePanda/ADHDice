@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   SafeAreaView, Alert, Animated, Easing, Dimensions, Modal, Image
@@ -10,26 +11,23 @@ import { useEconomy } from '../lib/EconomyContext';
 import ScrollToTop from '../components/ScrollToTop';
 import { colors } from '../theme';
 import { useTasks } from '../lib/TasksContext';
+import TaskResultModal from '../components/TaskResultModal';
 
 const SCREEN_W = Dimensions.get('window').width;
-const CARD_W = (SCREEN_W - 60) / 4;
+const CARD_W = (SCREEN_W - 80) / 4;
 const CARD_H = CARD_W * 1.4;
+const BATTLE_W = (SCREEN_W - 50) / 2;
+const BATTLE_H = BATTLE_W * 1.4;
 
 // ── Task pool for cards ──────────────────────────────────────────────────────
-const VALUE_COLORS = {
-  1: '#6b7280',
-  2: '#0891b2',
-  3: '#059669',
-  4: '#d97706',
-  5: '#ef4444',
-};
-
-const VALUE_LABELS = {
-  1: '★',
-  2: '★★',
-  3: '★★★',
-  4: '★★★★',
-  5: '★★★★★',
+const STATUSES = {
+  first_step: { color: '#8b5cf6' },
+  active:   { color: '#eab308' },
+  pending:  { color: '#f59e0b' },
+  upcoming: { color: '#64748b' },
+  done:     { color: '#10b981' },
+  did_my_best: { color: '#0ea5e9' },
+  missed:   { color: '#ef4444' },
 };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -43,8 +41,8 @@ function shuffle(arr) {
 }
 
 let cardId = 0;
-function makeCard(title, value) {
-  return { id: cardId++, title, value };
+function makeCard(task, value) {
+  return { id: cardId++, originalId: task.id, title: task.title, status: task.status || 'pending', value };
 }
 
 function dealInitialCards(taskPool) {
@@ -52,8 +50,8 @@ function dealInitialCards(taskPool) {
   const cards = [];
   for (let row = 0; row < 5; row++) {
     for (let col = 0; col < 4; col++) {
-      const taskTitle = shuffled[row * 4 + col]?.title || 'Unknown Task';
-      cards.push(makeCard(taskTitle, row + 1));
+      const task = shuffled[row * 4 + col] || { title: 'Unknown Task', status: 'pending' };
+      cards.push(makeCard(task, row + 1));
     }
   }
   return cards;
@@ -63,65 +61,95 @@ function getUnusedTask(currentCards, taskPool) {
   const used = new Set(currentCards.map(c => c.title));
   const available = taskPool.filter(t => !used.has(t.title));
   if (available.length === 0) return null;
-  return available[Math.floor(Math.random() * available.length)].title;
+  return available[Math.floor(Math.random() * available.length)];
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
 // SUB-COMPONENTS (CARDS, PHASES)
 // ═════════════════════════════════════════════════════════════════════════════
 
-function GameCard({ card, faceDown, small, onPress, highlighted, dimmed }) {
-  const valColor = VALUE_COLORS[card.value] || '#6b7280';
+function GameCard({ card, faceDown, small, large, onPress, highlighted, dimmed, flipAnim }) {
+  const statusColor = card ? (STATUSES[card.status]?.color || '#6b7280') : '#ffffff';
+  const [showFront, setShowFront] = useState(!faceDown);
 
-  if (faceDown) {
-    return (
-      <TouchableOpacity
-        style={[
-          styles.card,
-          small && styles.cardSmall,
-          styles.cardBack,
-          dimmed && { opacity: 0.4 },
-        ]}
-        activeOpacity={0.8}
-        onPress={onPress}
-        disabled={!onPress}
-      >
-        <View style={styles.cardBackPattern}>
-          <Ionicons name="diamond" size={small ? 16 : 24} color="rgba(255,255,255,0.3)" />
+  useEffect(() => {
+    if (flipAnim) {
+      const id = flipAnim.addListener(({ value }) => {
+        setShowFront(value > 0.5);
+      });
+      return () => flipAnim.removeListener(id);
+    } else {
+      setShowFront(!faceDown);
+    }
+  }, [flipAnim, faceDown]);
+
+  const cardStyle = [
+    styles.card,
+    small && styles.cardSmall,
+    large && styles.cardLarge,
+    { backgroundColor: showFront ? statusColor : '#ffffff', borderColor: showFront ? statusColor : '#e5e7eb' },
+    highlighted && { borderColor: '#ffffff', borderWidth: 2 },
+    dimmed && { opacity: 0.4 },
+    flipAnim && {
+      transform: [
+        { perspective: 1000 },
+        { rotateY: flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '0deg'] }) }
+      ]
+    }
+  ];
+
+  const content = (
+    <>
+      {!showFront ? (
+        <View style={[styles.cardBackPattern, { flex: 1, width: '100%', height: '100%' }]}>
+          <Image 
+            source={require('../../assets/logo.png')} 
+            style={{ 
+              width: large ? 175 : (small ? 30 : 60), 
+              height: large ? 175 : (small ? 30 : 60)
+            }} 
+            resizeMode="contain" 
+          />
         </View>
-      </TouchableOpacity>
-    );
+      ) : (
+        <>
+          {card && (
+            <>
+              <View style={[styles.cardRankTop, large && { top: 8, left: 10 }]}>
+                <Text style={[styles.cardRankText, large && { fontSize: 20 }]}>{card.value}</Text>
+              </View>
+              <View style={styles.cardCenterContent}>
+                <Text style={[styles.cardTitle, { color: '#ffffff' }, small && { fontSize: 8 }, large && { fontSize: 16 }]} numberOfLines={large ? 6 : (small ? 2 : 4)}>
+                  {card.title}
+                </Text>
+              </View>
+              <View style={[styles.cardRankBottom, large && { bottom: 8, right: 10 }, { transform: [{ rotate: '180deg' }] }]}>
+                <Text style={[styles.cardRankText, large && { fontSize: 20 }]}>{card.value}</Text>
+              </View>
+            </>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  if (flipAnim) {
+    return <Animated.View style={cardStyle}>{content}</Animated.View>;
   }
 
   return (
     <TouchableOpacity
-      style={[
-        styles.card,
-        small && styles.cardSmall,
-        { borderColor: valColor },
-        highlighted && { borderColor: '#fbbf24', borderWidth: 3, shadowColor: '#fbbf24', shadowOpacity: 0.4, shadowRadius: 12 },
-        dimmed && { opacity: 0.4 },
-      ]}
+      style={cardStyle}
       activeOpacity={onPress ? 0.7 : 1}
       onPress={onPress}
       disabled={!onPress}
     >
-      <View style={styles.cardCorner}>
-        <Text style={[styles.cardValue, { color: valColor }]}>{card.value}</Text>
-      </View>
-      <View style={styles.cardCenterContent}>
-        <Text style={[styles.cardTitle, small && { fontSize: 9 }]} numberOfLines={small ? 2 : 3}>
-          {card.title}
-        </Text>
-      </View>
-      <Text style={[styles.cardStars, { color: valColor }]}>
-        {VALUE_LABELS[card.value]}
-      </Text>
+      {content}
     </TouchableOpacity>
   );
 }
 
-function SetupPhase({ cards, onSwapCard, onShuffle }) {
+function SetupPhase({ cards, onSwapCard, onShuffle, onFlipSound }) {
   const rows = [0, 1, 2, 3, 4];
   return (
     <View style={styles.setupContainer}>
@@ -130,12 +158,12 @@ function SetupPhase({ cards, onSwapCard, onShuffle }) {
       {rows.map(row => (
         <View key={row} style={styles.setupRow}>
           <View style={styles.rowLabel}>
-            <Text style={[styles.rowLabelText, { color: VALUE_COLORS[row + 1] }]}>{row + 1}</Text>
+            <Text style={[styles.rowLabelText, { color: '#94a3b8' }]}>{row + 1}</Text>
           </View>
           {[0, 1, 2, 3].map(col => {
             const idx = row * 4 + col;
             const card = cards[idx];
-            return <GameCard key={card.id} card={card} small onPress={() => onSwapCard(idx)} />;
+            return <GameCard key={card.id} card={card} small onPress={() => { onFlipSound(); onSwapCard(idx); }} />;
           })}
         </View>
       ))}
@@ -152,7 +180,8 @@ function BattlePhase({
   playerCard, opponentCard,
   warStake,
   battleResult, isWar,
-  onFlip, onResolve, onDoTask, onForfeit,
+  onResolve, onDoTask, onForfeit,
+  pFlip, oFlip, waitingForPlayer, hasFlippedOnce, onPlayerFlip, colors
 }) {
   const stakeContribution = Math.floor(warStake.length / 2);
   const playerCount = playerDeck.length + (playerCard ? 1 : 0) + stakeContribution;
@@ -179,48 +208,79 @@ function BattlePhase({
       </View>
 
       {warStake.length > 0 && (
-        <View style={styles.warStakeBar}>
+        <View style={[styles.warStakeBar, { marginBottom: 10 }]}>
           <Ionicons name="flame" size={16} color="#ef4444" />
           <Text style={styles.warStakeText}>{Math.floor(warStake.length / 2) + 1} cards to steal!</Text>
         </View>
       )}
 
       <View style={styles.battleField}>
-        <View style={styles.battleSide}>
-          <Text style={styles.sideLabel}>Your Card</Text>
-          {playerCard ? <GameCard card={playerCard} /> : playerDeck.length > 0 ? <GameCard card={playerDeck[0]} faceDown /> : <View style={[styles.card, styles.emptySlot]}><Text style={styles.emptySlotText}>Empty</Text></View>}
+        {/* VS / STAKE INDICATOR - POSITIONED ABSOLUTELY ON THE RIGHT */}
+        <View style={[styles.battleCenter, { position: 'absolute', right: 60, top: '50%', marginTop: -30 }]}>
+          {warStake.length === 0 ? (
+            <Text style={styles.vsText}>VS</Text>
+          ) : (
+            <View style={styles.warBadge}>
+               <Text style={styles.warBadgeText}>WAR</Text>
+            </View>
+          )}
         </View>
-        <View style={styles.battleCenter}>
-          {battleResult === 'war' && <View style={styles.warBadge}><Text style={styles.warBadgeText}>WAR!</Text></View>}
-          {battleResult === 'player' && <Ionicons name="arrow-back" size={28} color={colors.primary} />}
-          {battleResult === 'opponent' && <Ionicons name="arrow-forward" size={28} color="#ef4444" />}
-          {!battleResult && <Ionicons name="flash" size={24} color={colors.textMuted} />}
-        </View>
+
+        {/* OPPONENT SIDE */}
         <View style={styles.battleSide}>
-          <Text style={styles.sideLabel}>Opponent</Text>
-          {opponentCard ? <GameCard card={opponentCard} /> : opponentDeck.length > 0 ? <GameCard card={opponentDeck[0]} faceDown /> : <View style={[styles.card, styles.emptySlot]}><Text style={styles.emptySlotText}>Empty</Text></View>}
+          <View style={[styles.sideLabelWrapper, { position: 'absolute', left: 20 }]}>
+            <Text style={[styles.sideLabel, battleResult === 'opponent' && { color: '#ef4444', fontWeight: '900' }]}>OPPONENT</Text>
+          </View>
+          {opponentCard 
+            ? <GameCard card={opponentCard} large highlighted={battleResult === 'opponent'} flipAnim={oFlip} /> 
+            : (opponentDeck.length > 0 ? <GameCard faceDown large /> : <View style={[styles.card, styles.cardLarge, styles.emptySlot]}><Text style={styles.emptySlotText}>Empty</Text></View>)
+          }
+        </View>
+
+        {/* YOU SIDE */}
+        <View style={styles.battleSide}>
+          <View style={[styles.sideLabelWrapper, { position: 'absolute', left: 20 }]}>
+            <Text style={[styles.sideLabel, battleResult === 'player' && { color: colors.primary, fontWeight: '900' }]}>YOU</Text>
+          </View>
+          {playerCard 
+            ? <GameCard card={playerCard} large highlighted={battleResult === 'player'} flipAnim={pFlip} /> 
+            : (playerDeck.length > 0 ? (
+                <View style={{ alignItems: 'center' }}>
+                  <TouchableOpacity onPress={onPlayerFlip} activeOpacity={0.9}>
+                    <GameCard faceDown large highlighted={waitingForPlayer} dimmed={!waitingForPlayer} />
+                  </TouchableOpacity>
+                  {waitingForPlayer && !hasFlippedOnce && (
+                    <View style={{ marginTop: 12, backgroundColor: colors.primary, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12, shadowColor: colors.primary, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }}>
+                      <Text style={{ color: '#fff', fontWeight: '900', fontSize: 13, letterSpacing: 0.5 }}>TAP TO FLIP</Text>
+                    </View>
+                  )}
+                </View>
+              ) : <View style={[styles.card, styles.cardLarge, styles.emptySlot]}><Text style={styles.emptySlotText}>Empty</Text></View>)
+          }
         </View>
       </View>
 
       {isWar && (
         <View style={styles.warCardsRow}>
           <View style={styles.warCardsStack}>
-            {Array.from({ length: isWar.player || 0 }).map((_, i) => <View key={`pw${i}`} style={[styles.warMiniCard, { left: i * 8 }]}><Ionicons name="diamond" size={10} color="rgba(255,255,255,0.4)" /></View>)}
+            {Array.from({ length: isWar.player || 0 }).map((_, i) => (
+              <View key={`pw${i}`} style={[styles.warMiniCard, { left: i * 8 }]}>
+                <Image source={require('../../assets/logo.png')} style={{ width: 14, height: 14 }} resizeMode="contain" />
+              </View>
+            ))}
           </View>
           <Text style={styles.warMiddleText}>{isWar.player === isWar.opponent && isWar.player > 0 ? `${isWar.player} cards each` : `${isWar.player || 0} vs ${isWar.opponent || 0} cards`}</Text>
           <View style={styles.warCardsStack}>
-            {Array.from({ length: isWar.opponent || 0 }).map((_, i) => <View key={`ow${i}`} style={[styles.warMiniCard, { left: i * 8 }]}><Ionicons name="diamond" size={10} color="rgba(255,255,255,0.4)" /></View>)}
+            {Array.from({ length: isWar.opponent || 0 }).map((_, i) => (
+              <View key={`ow${i}`} style={[styles.warMiniCard, { left: i * 8 }]}>
+                <Image source={require('../../assets/logo.png')} style={{ width: 14, height: 14 }} resizeMode="contain" />
+              </View>
+            ))}
           </View>
         </View>
       )}
 
       <View style={styles.actionArea}>
-        {!playerCard && !opponentCard && playerDeck.length > 0 && opponentDeck.length > 0 && (
-          <TouchableOpacity style={styles.warButton} onPress={onFlip}>
-            <Ionicons name="flash" size={22} color="#fff" />
-            <Text style={styles.warButtonText}>{isWar ? 'Flip Tiebreaker!' : 'War!'}</Text>
-          </TouchableOpacity>
-        )}
         {battleResult === 'player' && (
           <View style={styles.resultActions}>
             <Text style={styles.resultText}>🎉 You win this round!</Text>
@@ -262,10 +322,99 @@ function WinScreen({ winner, onPlayAgain }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// SHUFFLING & DEALING ANIMATION
+// ═════════════════════════════════════════════════════════════════════════════
+
+function ShufflingStage({ onComplete, playShuffleSound }) {
+  const { colors } = useTheme();
+  // We'll animate 20 cards
+  const cards = Array.from({ length: 20 }, (_, i) => ({
+    id: i,
+    pos: useRef(new Animated.ValueXY({ x: (i % 4) * (CARD_W + 10) - (SCREEN_W/2 - 40), y: Math.floor(i / 4) * (CARD_H + 10) - 200 })).current,
+    rot: useRef(new Animated.Value(0)).current,
+    scale: useRef(new Animated.Value(1)).current,
+    opacity: useRef(new Animated.Value(1)).current,
+  }));
+
+  useEffect(() => {
+    // 1. GATHER to center
+    const gatherAnims = cards.map(c => 
+      Animated.parallel([
+        Animated.spring(c.pos, { toValue: { x: 0, y: 0 }, friction: 7, tension: 40, useNativeDriver: true }),
+        Animated.timing(c.rot, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ])
+    );
+
+    Animated.parallel(gatherAnims).start(() => {
+      // 2. SHUFFLE WIGGLE
+      playShuffleSound();
+      const shuffleAnims = cards.map((c, i) => 
+        Animated.sequence([
+          Animated.timing(c.pos, { toValue: { x: (i%2 === 0 ? 15 : -15), y: 0 }, duration: 100, useNativeDriver: true }),
+          Animated.timing(c.pos, { toValue: { x: 0, y: 0 }, duration: 100, useNativeDriver: true }),
+          Animated.timing(c.pos, { toValue: { x: (i%2 === 0 ? -10 : 10), y: 0 }, duration: 100, useNativeDriver: true }),
+          Animated.timing(c.pos, { toValue: { x: 0, y: 0 }, duration: 100, useNativeDriver: true }),
+        ])
+      );
+
+      Animated.parallel(shuffleAnims).start(() => {
+        // 3. DEAL to top/bottom
+        const dealAnims = cards.map((c, i) => {
+          const isPlayer = i < 10;
+          const targetY = isPlayer ? 400 : -400;
+          const targetX = isPlayer ? -50 : 50;
+          return Animated.sequence([
+            Animated.delay(i * 40),
+            Animated.parallel([
+              Animated.timing(c.pos, { toValue: { x: targetX, y: targetY }, duration: 400, useNativeDriver: true }),
+              Animated.timing(c.opacity, { toValue: 0, duration: 400, useNativeDriver: true }),
+              Animated.timing(c.scale, { toValue: 0.5, duration: 400, useNativeDriver: true }),
+            ])
+          ]);
+        });
+        
+        Animated.parallel(dealAnims).start(() => {
+          onComplete();
+        });
+      });
+    });
+  }, []);
+
+  return (
+    <View style={styles.shufflingContainer}>
+      <Text style={styles.shufflingTitle}>Shuffling Deck...</Text>
+      <View style={styles.shufflingField}>
+        {cards.map(c => (
+          <Animated.View 
+            key={c.id} 
+            style={[
+              styles.shufflingCard,
+              {
+                opacity: c.opacity,
+                transform: [
+                  { translateX: c.pos.x },
+                  { translateY: c.pos.y },
+                  { rotate: c.rot.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] }) },
+                  { scale: c.scale }
+                ]
+              }
+            ]}
+          >
+            <View style={{ width: 240, height: 336 }}>
+               <GameCard faceDown large />
+            </View>
+          </Animated.View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // REWARD MODALS
 // ═════════════════════════════════════════════════════════════════════════════
 
-function RecordDiceModal({ visible, onReward, colors }) {
+function RecordDiceModal({ visible, onReward, colors, title = "NEW RECORD!" }) {
   const [step, setStep] = useState('rollBase'); // rollBase | showBase | rollMulti | result
   const [baseRoll, setBaseRoll] = useState(1);
   const [multiRoll, setMultiRoll] = useState(1);
@@ -303,7 +452,7 @@ function RecordDiceModal({ visible, onReward, colors }) {
         <View style={diceStyles.body}>
           {step === 'rollBase' && (
             <View style={diceStyles.center}>
-              <Text style={diceStyles.title}>NEW RECORD!</Text>
+              <Text style={diceStyles.title}>{title}</Text>
               <Text style={diceStyles.sub}>Rolling d20 Base Reward...</Text>
               <Animated.View style={{ transform: [{ rotate: spinVal.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '1080deg'] }) }] }}>
                 <Ionicons name="dice" size={80} color={colors.amber} />
@@ -370,7 +519,11 @@ const diceStyles = StyleSheet.create({
 // ═════════════════════════════════════════════════════════════════════════════
 
 function WarGame({ onBack, tasks, colors }) {
-  const taskPool = tasks.filter(t => t.status === 'pending');
+  const { logTaskEvent, setTasks } = useTasks();
+  const { addReward } = useEconomy();
+  const [completingWarTask, setCompletingWarTask] = useState(null);
+
+  const taskPool = tasks.filter(t => t.status === 'pending' || t.status === 'active' || t.status === 'first_step');
   const [phase, setPhase] = useState('setup');
   const [setupCards, setSetupCards] = useState(() => taskPool.length >= 20 ? dealInitialCards(taskPool) : []);
   const [playerDeck, setPlayerDeck] = useState([]);
@@ -381,10 +534,106 @@ function WarGame({ onBack, tasks, colors }) {
   const [warStake, setWarStake]       = useState([]); 
   const [isWar, setIsWar]             = useState(false); 
   const [winner, setWinner]           = useState(null);
+  const [hasFlippedOnce, setHasFlippedOnce] = useState(false);
+
+  // Animations
+  const pFlip = useRef(new Animated.Value(0)).current;
+  const oFlip = useRef(new Animated.Value(0)).current;
+  const [waitingForPlayer, setWaitingForPlayer] = useState(false);
+
+  // Audio
+  const flipSoundRef = useRef(null);
+  const shuffleSoundRef = useRef(null);
+  useEffect(() => {
+    async function setupAudio() {
+      try {
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          allowsRecordingIOS: false,
+          interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+        });
+
+        // Pre-load sounds
+        const { sound: flipSnd } = await Audio.Sound.createAsync(require('../../assets/card-flip.mp3'));
+        flipSoundRef.current = flipSnd;
+
+        const { sound: shufSnd } = await Audio.Sound.createAsync(require('../../assets/card-shuffle.mp3'));
+        shuffleSoundRef.current = shufSnd;
+
+        console.log('✅ All sounds pre-loaded successfully');
+      } catch (e) {
+        console.log('Audio setup error:', e);
+      }
+    }
+    setupAudio();
+    return () => {
+      if (flipSoundRef.current) flipSoundRef.current.unloadAsync();
+      if (shuffleSoundRef.current) shuffleSoundRef.current.unloadAsync();
+    };
+  }, []);
+
+  async function playFlipSound() {
+    try {
+      if (flipSoundRef.current) {
+        await flipSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
+
+  async function playShuffleSound() {
+    try {
+      if (shuffleSoundRef.current) {
+        await shuffleSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
 
   useEffect(() => {
     if (phase === 'setup' && taskPool.length >= 20 && setupCards.length === 0) setSetupCards(dealInitialCards(taskPool));
   }, [taskPool, phase]);
+
+  // Round Logic
+  useEffect(() => {
+    if (phase === 'battle' && !playerCard && !opponentCard && playerDeck.length > 0 && opponentDeck.length > 0) {
+      startNextRound();
+    }
+  }, [phase, playerCard, opponentCard, playerDeck.length, opponentDeck.length]);
+
+  function startNextRound() {
+    // 1 second delay for suspense before reveal
+    setTimeout(() => {
+      if (playerCard || opponentCard) return; 
+      const oNext = opponentDeck[0];
+      if (!oNext) return;
+
+      setOpponentCard(oNext);
+      setOpponentDeck(opponentDeck.slice(1));
+      oFlip.setValue(0);
+      pFlip.setValue(0);
+      playFlipSound();
+      Animated.timing(oFlip, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }).start(() => {
+        setWaitingForPlayer(true);
+      });
+    }, 1000);
+  }
+
+  function handlePlayerFlip() {
+    if (!waitingForPlayer) return;
+    setHasFlippedOnce(true);
+    setWaitingForPlayer(false);
+    const pNext = playerDeck[0];
+    setPlayerCard(pNext);
+    setPlayerDeck(playerDeck.slice(1));
+    playFlipSound();
+    Animated.timing(pFlip, { toValue: 1, duration: 600, easing: Easing.inOut(Easing.ease), useNativeDriver: true }).start(() => {
+      // Resolve Result
+      if (pNext.value > opponentCard.value) setBattleResult('player');
+      else if (opponentCard.value > pNext.value) setBattleResult('opponent');
+      else setBattleResult('war');
+    });
+  }
 
   function swapCard(idx) {
     const newTask = getUnusedTask(setupCards, taskPool);
@@ -393,26 +642,24 @@ function WarGame({ onBack, tasks, colors }) {
   }
 
   function startGame() {
+    setPhase('shuffling');
+  }
+
+  function finishShuffling() {
     const shuffledCards = shuffle(setupCards);
     const half = Math.floor(shuffledCards.length / 2);
     setPlayerDeck(shuffledCards.slice(0, half));
     setOpponentDeck(shuffledCards.slice(half));
-    setPlayerCard(null); setOpponentCard(null); setBattleResult(null); setWarStake([]); setIsWar(false); setWinner(null);
     setPhase('battle');
-  }
-
-  function flipCards() {
-    if (playerDeck.length === 0 || opponentDeck.length === 0) return;
-    const pCard = playerDeck[0]; const oCard = opponentDeck[0];
-    setPlayerCard(pCard); setOpponentCard(oCard); setPlayerDeck(playerDeck.slice(1)); setOpponentDeck(opponentDeck.slice(1));
-    if (pCard.value > oCard.value) setBattleResult('player');
-    else if (oCard.value > pCard.value) setBattleResult('opponent');
-    else setBattleResult('war');
   }
 
   function resolveRound() {
     if (battleResult === 'war') {
-      if (playerDeck.length === 0 || opponentDeck.length === 0) { setWinner(playerDeck.length > 0 ? 'player' : 'opponent'); setPhase('win'); return; }
+      if (playerDeck.length < 2 || opponentDeck.length < 2) { 
+        setWinner(playerDeck.length > opponentDeck.length ? 'player' : 'opponent'); 
+        setPhase('win'); 
+        return; 
+      }
       const stake = [...warStake, playerCard, opponentCard];
       const pCount = Math.min(3, playerDeck.length - 1);
       const oCount = Math.min(3, opponentDeck.length - 1);
@@ -422,14 +669,49 @@ function WarGame({ onBack, tasks, colors }) {
       return;
     }
     const wonCards = [playerCard, opponentCard, ...warStake];
+    playShuffleSound();
     setPlayerDeck([...playerDeck, ...shuffle(wonCards)]);
     setPlayerCard(null); setOpponentCard(null); setBattleResult(null); setWarStake([]); setIsWar(false);
     if (opponentDeck.length === 0) { setWinner('player'); setPhase('win'); }
   }
 
-  function doTask() { resolveRound(); }
+  function doTask() { 
+    if (opponentCard) {
+      setCompletingWarTask({
+        id: opponentCard.originalId,
+        title: opponentCard.title,
+      });
+    }
+  }
+
+  function handleWarRewardClaim(taskId, results) {
+    if (opponentCard) {
+      const today = new Date().toISOString().split('T')[0];
+      // 1. Log to history
+      logTaskEvent({ id: opponentCard.originalId, title: opponentCard.title, tags: [], energy: 'medium' }, 'done');
+      
+      // 2. Update actual task status AND history grid in the main list
+      setTasks(prev => prev.map(t => {
+        if (t.id === opponentCard.originalId) {
+          const h = { ...(t.statusHistory || {}) };
+          h[today] = 'done';
+          return { ...t, status: 'done', statusHistory: h };
+        }
+        return t;
+      }));
+    }
+    setCompletingWarTask(null);
+    
+    // Manually resolve round as a PLAYER win
+    const wonCards = [playerCard, opponentCard, ...warStake];
+    playShuffleSound();
+    setPlayerDeck(prev => [...prev, ...shuffle(wonCards)]);
+    setPlayerCard(null); setOpponentCard(null); setBattleResult(null); setWarStake([]); setIsWar(false);
+    if (opponentDeck.length === 0) { setWinner('player'); setPhase('win'); }
+  }
   function forfeitCards() { 
     const wonCards = [playerCard, opponentCard, ...warStake];
+    playShuffleSound();
     setOpponentDeck([...opponentDeck, ...shuffle(wonCards)]);
     setPlayerCard(null); setOpponentCard(null); setBattleResult(null); setWarStake([]); setIsWar(false);
     if (playerDeck.length === 0) { setWinner('opponent'); setPhase('win'); }
@@ -449,10 +731,18 @@ function WarGame({ onBack, tasks, colors }) {
     <View style={hubStyles.gameWrapper}>
       <View style={styles.header}><TouchableOpacity onPress={onBack}><Ionicons name="arrow-back" size={24} color={colors.textSecondary}/></TouchableOpacity><Text style={styles.headerTitle}>Task War</Text></View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
-        {phase === 'setup' && <SetupPhase cards={setupCards} onSwapCard={swapCard} onShuffle={startGame} />}
-        {phase === 'battle' && <BattlePhase playerDeck={playerDeck} opponentDeck={opponentDeck} playerCard={playerCard} opponentCard={opponentCard} warStake={warStake} battleResult={battleResult} isWar={isWar} onFlip={flipCards} onResolve={resolveRound} onDoTask={doTask} onForfeit={forfeitCards}/>}
-        {phase === 'win' && <WinScreen winner={winner} onPlayAgain={playAgain} />}
+        {phase === 'setup' && <SetupPhase cards={setupCards} onSwapCard={swapCard} onShuffle={startGame} onFlipSound={playFlipSound} />}
+        {phase === 'shuffling' && <ShufflingStage onComplete={finishShuffling} playShuffleSound={playShuffleSound} />}
+        {phase === 'battle' && <BattlePhase playerDeck={playerDeck} opponentDeck={opponentDeck} playerCard={playerCard} opponentCard={opponentCard} warStake={warStake} battleResult={battleResult} isWar={isWar} onResolve={resolveRound} onDoTask={doTask} onForfeit={forfeitCards} pFlip={pFlip} oFlip={oFlip} waitingForPlayer={waitingForPlayer} hasFlippedOnce={hasFlippedOnce} onPlayerFlip={handlePlayerFlip} colors={colors}/>}
+      {phase === 'win' && <WinScreen winner={winner} onPlayAgain={playAgain} />}
       </ScrollView>
+
+      <TaskResultModal
+        visible={!!completingWarTask}
+        task={completingWarTask}
+        onClose={() => setCompletingWarTask(null)}
+        onComplete={handleWarRewardClaim}
+      />
     </View>
   );
 }
@@ -644,12 +934,14 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
   resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f3f4f6' },
   resetBtnText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
-  card: { width: CARD_W, height: CARD_H, backgroundColor: '#fff', borderRadius: 10, borderWidth: 2, padding: 6, justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+  card: { width: CARD_W, height: CARD_H, borderRadius: 10, borderWidth: 1, padding: 6, justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
   cardSmall: { width: (SCREEN_W - 80) / 4, height: ((SCREEN_W - 80) / 4) * 1.4, padding: 4 },
-  cardBack: { backgroundColor: colors.primary, borderColor: '#3730a3', alignItems: 'center', justifyContent: 'center' },
+  cardLarge: { width: BATTLE_W, height: BATTLE_H, padding: 12 },
+  cardBack: { backgroundColor: '#ffffff', borderColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   cardBackPattern: { alignItems: 'center', justifyContent: 'center' },
-  cardCorner: { flexDirection: 'row', alignItems: 'center', gap: 2 },
-  cardValue: { fontSize: 16, fontWeight: '800' },
+  cardRankTop: { position: 'absolute', top: 4, left: 6 },
+  cardRankBottom: { position: 'absolute', bottom: 4, right: 6 },
+  cardRankText: { fontSize: 13, fontWeight: '900', color: '#ffffff' },
   cardCenterContent: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 2 },
   cardTitle: { fontSize: 11, fontWeight: '600', color: colors.textPrimary, textAlign: 'center' },
   cardStars: { fontSize: 8, textAlign: 'right' },
@@ -672,15 +964,16 @@ const styles = StyleSheet.create({
   vsText: { fontSize: 16, fontWeight: '800', color: colors.textMuted },
   warStakeBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#fef2f2', borderRadius: 8, paddingVertical: 8, marginBottom: 12, borderWidth: 1, borderColor: '#fecaca' },
   warStakeText: { fontSize: 14, fontWeight: '600', color: '#ef4444' },
-  battleField: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  battleSide: { alignItems: 'center', gap: 8 },
-  sideLabel: { fontSize: 12, fontWeight: '600', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
-  battleCenter: { alignItems: 'center', justifyContent: 'center', width: 40 },
+  battleField: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, marginBottom: 10, width: '100%' },
+  battleSide: { width: '100%', alignItems: 'center', justifyContent: 'center', height: BATTLE_H + 20 },
+  sideLabelWrapper: { width: 85, alignItems: 'flex-start' },
+  sideLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 1 },
+  battleCenter: { alignItems: 'center', justifyContent: 'center', height: 40, zIndex: 10 },
   warBadge: { backgroundColor: '#ef4444', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
   warBadgeText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   warCardsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 16, marginBottom: 16 },
   warCardsStack: { flexDirection: 'row', width: 40, height: 30 },
-  warMiniCard: { position: 'absolute', width: 22, height: 30, backgroundColor: colors.primary, borderRadius: 4, borderWidth: 1, borderColor: '#3730a3', alignItems: 'center', justifyContent: 'center' },
+  warMiniCard: { position: 'absolute', width: 22, height: 30, backgroundColor: '#ffffff', borderRadius: 4, borderWidth: 1, borderColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.1, shadowRadius: 2, elevation: 2 },
   warMiddleText: { fontSize: 11, color: colors.textMuted, fontWeight: '500' },
   actionArea: { alignItems: 'center', minHeight: 120 },
   warButton: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#ef4444', paddingHorizontal: 40, paddingVertical: 16, borderRadius: 14, elevation: 5 },
@@ -707,6 +1000,12 @@ const styles = StyleSheet.create({
   emptyContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   emptyTitle: { fontSize: 22, fontWeight: '700', color: colors.textPrimary, marginTop: 16, textAlign: 'center' },
   emptySub: { fontSize: 15, color: colors.textMuted, textAlign: 'center', marginTop: 8, lineHeight: 22 },
+
+  // Shuffling
+  shufflingContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 650 },
+  shufflingTitle: { fontSize: 20, fontWeight: '900', color: '#8b5cf6', marginBottom: 60, textTransform: 'uppercase', letterSpacing: 3, textAlign: 'center' },
+  shufflingField: { position: 'relative', width: 240, height: 336, alignItems: 'center', justifyContent: 'center' },
+  shufflingCard: { position: 'absolute' },
 });
 
 const hubStyles = StyleSheet.create({

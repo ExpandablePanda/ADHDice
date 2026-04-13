@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProfile } from './ProfileContext';
+import { supabase } from './supabase';
 
 // Sample data for initial setup
 const INITIAL_TASKS = [
@@ -15,40 +16,78 @@ const INITIAL_TASKS = [
       ]},
     ],
   },
-  { id: '2', title: 'Read for 20 minutes', status: 'upcoming', energy: 'low',  dueDate: '', nextDueDate: '', tags: [],       subtasks: [] },
-  { id: '3', title: 'Reply to emails',     status: 'pending',  energy: 'medium', dueDate: '04/14/2026', nextDueDate: '', tags: ['work'], subtasks: [] },
-  { id: '4', title: 'Grocery run',         status: 'done',     energy: null,   dueDate: '', nextDueDate: '', tags: ['errands'], subtasks: [] },
 ];
 
 const TasksContext = createContext();
 
 export function TasksProvider({ children }) {
-  const { storagePrefix } = useProfile();
-  const [tasks, setTasks] = useState(INITIAL_TASKS);
+  const { storagePrefix, user } = useProfile();
+  const [tasks, setTasks] = useState([]);
   const [taskHistory, setTaskHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
+  // 1. Initial Load (Local + Cloud)
   useEffect(() => {
-    Promise.all([
-      AsyncStorage.getItem(`${storagePrefix}tasks`),
-      AsyncStorage.getItem(`${storagePrefix}task_history`)
-    ]).then(([storedTasks, storedHistory]) => {
-      if (storedTasks) {
-        try { setTasks(JSON.parse(storedTasks)); } catch(e) {}
+    async function loadData() {
+      // Local first
+      const storedTasks = await AsyncStorage.getItem(`${storagePrefix}tasks`);
+      const storedHistory = await AsyncStorage.getItem(`${storagePrefix}task_history`);
+      
+      if (storedTasks) setTasks(JSON.parse(storedTasks));
+      if (storedHistory) setTaskHistory(JSON.parse(storedHistory));
+
+      // Cloud sync
+      if (user) {
+        try {
+          const { data, error } = await supabase
+            .from('user_tasks')
+            .select('data')
+            .eq('user_id', user.id)
+            .single();
+
+          if (data && data.data) {
+            setTasks(data.data);
+          }
+        } catch (e) {
+          console.log('Tasks cloud sync fetch failed', e);
+        }
       }
-      if (storedHistory) {
-        try { setTaskHistory(JSON.parse(storedHistory)); } catch(e) {}
-      }
+      
       setLoaded(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (loaded) {
-      AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(tasks)).catch(e => console.error(e));
-      AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(taskHistory)).catch(e => console.error(e));
     }
-  }, [tasks, taskHistory, loaded, storagePrefix]);
+    loadData();
+  }, [storagePrefix, user]);
+
+  // 2. Save Data (Local + Cloud)
+  useEffect(() => {
+    if (!loaded || !user) return;
+
+    const saveData = async () => {
+      // Save local
+      await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(tasks));
+      await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(taskHistory));
+
+      // Save to Cloud
+      setIsSyncing(true);
+      try {
+        await supabase
+          .from('user_tasks')
+          .upsert({ 
+            user_id: user.id, 
+            data: tasks,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'user_id' });
+      } catch (e) {
+        console.error('Tasks cloud save failed', e);
+      } finally {
+        setIsSyncing(false);
+      }
+    };
+
+    const timeoutId = setTimeout(saveData, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [tasks, taskHistory, loaded, user, storagePrefix]);
 
   const logTaskEvent = (task, status) => {
     const event = {

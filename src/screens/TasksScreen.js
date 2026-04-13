@@ -4,6 +4,7 @@ import {
   StyleSheet, Modal, KeyboardAvoidingView, Platform,
   SafeAreaView, ScrollView, Alert, Animated,
 } from 'react-native';
+import { Audio, InterruptionModeIOS, InterruptionModeAndroid } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
 import { useTasks } from '../lib/TasksContext';
@@ -545,38 +546,38 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory }) {
   }
 
   return (
-    <TouchableOpacity style={[styles.card, { borderColor: status?.color || '#cbd5e1' }]} activeOpacity={0.75} onPress={() => onOpen(task)}>
+    <TouchableOpacity style={[styles.card, { borderColor: status?.color || '#cbd5e1', backgroundColor: status?.color || '#ffffff' }]} activeOpacity={0.75} onPress={() => onOpen(task)}>
 
       {/* Top-left corner — status (like a card rank) */}
       <View style={{ flexDirection: 'row' }}>
         <TouchableOpacity style={styles.cardCorner} onPress={handleCornerPress}>
-          <View style={[styles.cardCornerDot, { backgroundColor: status?.color || '#94a3b8' }]} />
-          <Text style={[styles.cardCornerLabel, { color: status?.color || '#94a3b8' }]}>{status?.label || 'Task'}</Text>
+          <View style={[styles.cardCornerDot, { backgroundColor: '#ffffff' }]} />
+          <Text style={[styles.cardCornerLabel, { color: '#ffffff' }]}>{status?.label || 'Task'}</Text>
         </TouchableOpacity>
         
         {stagedStatus && (
           <TouchableOpacity style={styles.cardConfirmBtn} onPress={handleConfirm}>
-            <Ionicons name="checkmark-circle" size={24} color="#10b981" />
+            <Ionicons name="checkmark-circle" size={24} color="#ffffff" />
           </TouchableOpacity>
         )}
       </View>
 
       {/* Center — title & subtasks */}
       <View style={styles.cardCenter}>
-        <Text style={[styles.cardTitle, task.status === 'done' && styles.strikeDone]} numberOfLines={2}>
+        <Text style={[styles.cardTitle, { color: '#ffffff' }, task.status === 'done' && { textDecorationLine: 'line-through', color: 'rgba(255,255,255,0.8)' }]} numberOfLines={2}>
           {task.title}
         </Text>
         {(task.subtasks || []).length > 0 && (
           <View style={styles.cardSubtaskPreview}>
             {task.subtasks.slice(0, 3).map(s => (
-                <View style={[styles.cardSubtaskMiniRow, { marginBottom: 2 }]}>
-                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: (STATUSES[s.status]?.color || '#94a3b8'), marginRight: 4 }} />
-                  <Text style={[styles.cardSubtaskMiniText, (s.status === 'done' || s.status === 'did_my_best') && styles.strikeDone]} numberOfLines={1}>
+                <View style={[styles.cardSubtaskMiniRow, { marginBottom: 2 }]} key={s.id || s.title}>
+                  <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff', marginRight: 4 }} />
+                  <Text style={[styles.cardSubtaskMiniText, { color: '#ffffff' }, (s.status === 'done' || s.status === 'did_my_best') && { textDecorationLine: 'line-through', color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                     {s.title}
                   </Text>
                 </View>
             ))}
-            {task.subtasks.length > 3 && <Text style={styles.cardSubtaskMore}>+{task.subtasks.length - 3} more...</Text>}
+            {task.subtasks.length > 3 && <Text style={[styles.cardSubtaskMore, { color: '#ffffff', opacity: 0.8 }]}>+{task.subtasks.length - 3} more...</Text>}
           </View>
         )}
       </View>
@@ -584,38 +585,38 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory }) {
       {/* Bottom — chips */}
       <View style={styles.cardBottom}>
         <TouchableOpacity 
-          style={[styles.cardChip, { backgroundColor: '#e0f2fe', borderWidth: 1, borderColor: '#7dd3fc' }]}
+          style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.25)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.5)' }]}
           onPress={(e) => { e.stopPropagation(); onHistory(task); }}
         >
-          <Ionicons name="time-outline" size={9} color="#0284c7" />
-          <Text style={[styles.cardChipText, { color: '#0284c7', fontWeight: '700' }]}>History</Text>
+          <Ionicons name="time-outline" size={9} color="#ffffff" />
+          <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '800' }]}>History</Text>
         </TouchableOpacity>
         {energy && (
-          <View style={[styles.cardChip, { backgroundColor: energy.bg }]}>
-            <Text style={[styles.cardChipText, { color: energy.color }]}>{energy.label}</Text>
+          <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{energy.label}</Text>
           </View>
         )}
         {(task.dueDate || task.dueTime) && (
-          <View style={styles.cardChip}>
-            <Ionicons name="calendar-outline" size={9} color="#6b7280" />
-            <Text style={styles.cardChipText}>{task.dueDate} {task.dueTime}</Text>
+          <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <Ionicons name="calendar-outline" size={9} color="#ffffff" />
+            <Text style={[styles.cardChipText, { color: '#ffffff' }]}>{task.dueDate} {task.dueTime}</Text>
           </View>
         )}
         {total > 0 && (
-          <View style={styles.cardChip}>
-            <Ionicons name="checkbox-outline" size={9} color="#6b7280" />
-            <Text style={styles.cardChipText}>{done}/{total}</Text>
+          <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+            <Ionicons name="checkbox-outline" size={9} color="#ffffff" />
+            <Text style={[styles.cardChipText, { color: '#ffffff' }]}>{done}/{total}</Text>
           </View>
         )}
         {(task.streak && task.streak > 0) ? (
-          <View style={[styles.cardChip, { backgroundColor: '#fee2e2' }]}>
-            <Ionicons name="flame" size={9} color="#ef4444" />
-            <Text style={[styles.cardChipText, { color: '#ef4444' }]}>{task.streak}</Text>
+          <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.3)' }]}>
+            <Ionicons name="flame" size={9} color="#ffffff" />
+            <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '800' }]}>{task.streak}</Text>
           </View>
         ) : null}
         {task.tags.slice(0, 1).map(tag => (
-          <View key={tag} style={[styles.cardChip, { backgroundColor: '#ede9fe' }]}>
-            <Text style={[styles.cardChipText, { color: '#6366f1' }]}>{tag}</Text>
+          <View key={tag} style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+            <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{tag}</Text>
           </View>
         ))}
       </View>
@@ -1173,6 +1174,7 @@ function ImportModal({ visible, onClose, onImport }) {
 function ShuffleModal({ task, onClose, onShuffle, onOpen, onCycleStatus }) {
   const [phase, setPhase]           = useState('shuffle');
   const [current, setCurrent]       = useState(task); // local copy so status updates reflect immediately
+  const [stagedStatus, setStagedStatus] = useState(null);
 
   // Ghost card animations
   const rot1  = useRef(new Animated.Value(0)).current;
@@ -1203,19 +1205,26 @@ function ShuffleModal({ task, onClose, onShuffle, onOpen, onCycleStatus }) {
       ]),
     ]).start(() => {
       setPhase('reveal');
+      setStagedStatus(null);
       Animated.spring(scale, { toValue: 1, friction: 6, tension: 180, useNativeDriver: true }).start();
     });
   }, [task]);
 
-  const status = STATUSES[current.status];
+  const currentStatusKey = stagedStatus || current.status || 'pending';
+  const status = STATUSES[currentStatusKey] || STATUSES.pending;
   const energy = current.energy ? ENERGY[current.energy] : null;
   const total  = countSubtasks(current.subtasks);
   const done   = countDone(current.subtasks);
 
   function handleCycleStatus() {
-    const next = { ...current, status: STATUSES[current.status].next };
+    setStagedStatus(STATUSES[currentStatusKey].next);
+  }
+
+  function handleConfirm() {
+    onCycleStatus(current.id, stagedStatus);
+    setStagedStatus(null);
+    const next = { ...current, status: stagedStatus };
     setCurrent(next);
-    onCycleStatus(current.id);
   }
 
   const mkRotate = (anim) => ({
@@ -1241,20 +1250,28 @@ function ShuffleModal({ task, onClose, onShuffle, onOpen, onCycleStatus }) {
           <Animated.View style={{ alignItems: 'center', transform: [{ scale }] }}>
             {/* Interactive card */}
             <TouchableOpacity
-              style={[styles.revealCard, { borderColor: status.color }]}
+              style={[styles.revealCard, { backgroundColor: status.color, borderColor: status.color }]}
               activeOpacity={0.85}
               onPress={() => onOpen(current)}
             >
               {/* Top-left: tap to cycle status */}
-              <TouchableOpacity style={styles.cardCorner} onPress={handleCycleStatus} hitSlop={12}>
-                <View style={[styles.cardCornerDot, { backgroundColor: status.color }]} />
-                <Text style={[styles.cardCornerLabel, { color: status.color }]}>{status.label}</Text>
-                <Ionicons name="chevron-forward" size={11} color={status.color} style={{ opacity: 0.7 }} />
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row' }}>
+                <TouchableOpacity style={styles.cardCorner} onPress={handleCycleStatus} hitSlop={12}>
+                  <View style={[styles.cardCornerDot, { backgroundColor: '#ffffff' }]} />
+                  <Text style={[styles.cardCornerLabel, { color: '#ffffff' }]}>{status.label}</Text>
+                  <Ionicons name="chevron-forward" size={11} color="#ffffff" style={{ opacity: 0.7 }} />
+                </TouchableOpacity>
+
+                {stagedStatus && (
+                  <TouchableOpacity style={[styles.cardConfirmBtn, { marginLeft: 8 }]} onPress={handleConfirm}>
+                    <Ionicons name="checkmark-circle" size={24} color="#ffffff" />
+                  </TouchableOpacity>
+                )}
+              </View>
 
               {/* Center: title */}
               <View style={styles.cardCenter}>
-                <Text style={[styles.revealTitle, current.status === 'done' && styles.strikeDone]} numberOfLines={5}>
+                <Text style={[styles.revealTitle, { color: '#ffffff' }, current.status === 'done' && { textDecorationLine: 'line-through', color: 'rgba(255,255,255,0.8)' }]} numberOfLines={5}>
                   {current.title}
                 </Text>
               </View>
@@ -1262,25 +1279,25 @@ function ShuffleModal({ task, onClose, onShuffle, onOpen, onCycleStatus }) {
               {/* Bottom-left: chips */}
               <View style={styles.cardBottom}>
                 {energy && (
-                  <View style={[styles.cardChip, { backgroundColor: energy.bg }]}>
-                    <Text style={[styles.cardChipText, { color: energy.color }]}>{energy.label}</Text>
+                  <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                    <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{energy.label}</Text>
                   </View>
                 )}
                 {current.dueDate ? (
-                  <View style={styles.cardChip}>
-                    <Ionicons name="calendar-outline" size={9} color="#6b7280" />
-                    <Text style={styles.cardChipText}>{current.dueDate}</Text>
+                  <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                    <Ionicons name="calendar-outline" size={9} color="#ffffff" />
+                    <Text style={[styles.cardChipText, { color: '#ffffff' }]}>{current.dueDate}</Text>
                   </View>
                 ) : null}
                 {total > 0 && (
-                  <View style={styles.cardChip}>
-                    <Ionicons name="checkbox-outline" size={9} color="#6b7280" />
-                    <Text style={styles.cardChipText}>{done}/{total}</Text>
+                  <View style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
+                    <Ionicons name="checkbox-outline" size={9} color="#ffffff" />
+                    <Text style={[styles.cardChipText, { color: '#ffffff' }]}>{done}/{total}</Text>
                   </View>
                 )}
                 {current.tags.slice(0, 2).map(tag => (
-                  <View key={tag} style={[styles.cardChip, { backgroundColor: '#ede9fe' }]}>
-                    <Text style={[styles.cardChipText, { color: '#6366f1' }]}>{tag}</Text>
+                  <View key={tag} style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
+                    <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{tag}</Text>
                   </View>
                 ))}
               </View>
@@ -1452,6 +1469,46 @@ function FocusYourDay({ tasks, onComplete }) {
 export default function TasksScreen() {
   const { tasks, setTasks, logTaskEvent } = useTasks();
   const { spendPoints, addFreeRoll, removeReward, incrementActiveStreak, incrementMissedStreak } = useEconomy();
+  
+  // Audio
+  const shuffleSoundRef = useRef(null);
+  useEffect(() => {
+    async function setupAudio() {
+      try {
+        console.log('🎵 Setting up Tasks audio mode...');
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          allowsRecordingIOS: false,
+          interruptionModeIOS: InterruptionModeIOS.MixWithOthers,
+          shouldDuckAndroid: true,
+          interruptionModeAndroid: InterruptionModeAndroid.DuckOthers,
+        });
+        console.log('🎵 Pre-loading card-shuffle.mp3...');
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/card-shuffle.mp3'));
+        shuffleSoundRef.current = sound;
+        console.log('✅ Tasks shuffle sound loaded successfully');
+      } catch (e) {
+        console.log('❌ Tasks audio setup error:', e);
+      }
+    }
+    setupAudio();
+    return () => { if (shuffleSoundRef.current) shuffleSoundRef.current.unloadAsync(); };
+  }, []);
+
+  async function playShuffleSound() {
+    try {
+      console.log('🎵 Attempting to play shuffle sound...');
+      if (shuffleSoundRef.current) {
+        await shuffleSoundRef.current.replayAsync();
+        console.log('🎵 Shuffle sound played!');
+      } else {
+        console.log('⚠️ Shuffle sound ref is null');
+      }
+    } catch (e) {
+      console.log('❌ Error playing shuffle sound:', e);
+    }
+  }
+
   const [editingTask,   setEditingTask]   = useState(null);
   const [importVisible, setImportVisible] = useState(false);
   const [search,        setSearch]        = useState('');
@@ -1481,7 +1538,7 @@ export default function TasksScreen() {
   const todayStr = new Date().toISOString().split('T')[0];
   const stats = {
     total: tasks.length,
-    today: tasks.filter(t => t.completedAt === todayStr).length,
+    today: tasks.filter(t => t.status === 'done' || t.status === 'did_my_best').length,
     pending: tasks.filter(t => t.status === 'pending' || t.status === 'active').length,
     upcoming: tasks.filter(t => t.status === 'upcoming').length,
   };
@@ -1517,6 +1574,7 @@ export default function TasksScreen() {
   const triggerShuffle = () => {
     const pool = filtered.filter(t => t.status === 'pending' || t.status === 'active');
     if (pool.length === 0) return;
+    playShuffleSound();
 
     if (pool.length === 1) {
        setShuffleTask(pool[0]);
@@ -1911,7 +1969,7 @@ export default function TasksScreen() {
           onClose={() => setShuffleTask(null)}
           onShuffle={triggerShuffle}
           onOpen={task => { setShuffleTask(null); setEditingTask(task); }}
-          onCycleStatus={(id) => confirmStatus(id)}
+          onCycleStatus={(id, targetStatus) => confirmStatus(id, targetStatus)}
         />
       )}
 

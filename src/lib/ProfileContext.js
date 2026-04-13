@@ -1,40 +1,56 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from './supabase';
 
 const ProfileContext = createContext();
 
-const PROFILES = [
-  { id: 'andrew', name: 'Andrew', icon: '🎯', color: '#6366f1', desc: 'Main profile' },
-  { id: 'test', name: 'Test Lab', icon: '🧪', color: '#f59e0b', desc: 'Feature testing' },
-];
-
 export function ProfileProvider({ children }) {
-  const [activeProfile, setActiveProfile] = useState(null); // null = landing screen
+  const [user, setUser] = useState(null);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('@ADHD_active_profile').then(stored => {
-      // Don't auto-select — always show chooser on app launch
+    // Check for active session on boot
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
       setLoaded(true);
     });
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
   }, []);
 
-  const selectProfile = (profileId) => {
-    setActiveProfile(profileId);
-    AsyncStorage.setItem('@ADHD_active_profile', profileId);
+  const login = async (email, password) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
   };
 
-  const clearProfile = () => {
-    setActiveProfile(null);
+  const signUp = async (email, password) => {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
   };
 
-  // Storage key prefix based on active profile
-  const storagePrefix = activeProfile ? `@ADHD_${activeProfile}_` : '@ADHD_';
+  const logout = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Keep compatibility with existing prefix-based storage for local backup
+  const storagePrefix = user ? `@ADHD_${user.id}_` : '@ADHD_guest_';
 
   if (!loaded) return null;
 
   return (
-    <ProfileContext.Provider value={{ activeProfile, selectProfile, clearProfile, profiles: PROFILES, storagePrefix }}>
+    <ProfileContext.Provider value={{ 
+      user, 
+      login, 
+      signUp, 
+      logout, 
+      storagePrefix,
+      activeProfile: user ? user.email : null // existing code uses activeProfile as a truthy check
+    }}>
       {children}
     </ProfileContext.Provider>
   );
@@ -45,5 +61,3 @@ export function useProfile() {
   if (!context) throw new Error('useProfile must be used within ProfileProvider');
   return context;
 }
-
-export { PROFILES };

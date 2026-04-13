@@ -1,30 +1,66 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProfile } from './ProfileContext';
+import { supabase } from './supabase';
 
 const NotesContext = createContext();
 
 export function NotesProvider({ children }) {
-  const { storagePrefix } = useProfile();
+  const { storagePrefix, user } = useProfile();
   const [notes, setNotes] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
+  // 1. Initial Load (Local + Cloud)
   useEffect(() => {
-    AsyncStorage.getItem(`${storagePrefix}notes`).then(stored => {
+    async function loadData() {
+      // Local first
+      const stored = await AsyncStorage.getItem(`${storagePrefix}notes`);
       if (stored) {
+        try { setNotes(JSON.parse(stored)); } catch(e) {}
+      }
+
+      // Cloud sync
+      if (user) {
         try {
-          setNotes(JSON.parse(stored));
-        } catch(e) { console.error('Failed to parse notes', e); }
+          const { data, error } = await supabase
+            .from('user_notes')
+            .select('data')
+            .eq('user_id', user.id)
+            .single();
+
+          if (data && data.data) {
+            setNotes(data.data);
+          }
+        } catch (e) {
+          console.log('Notes cloud fetch failed', e);
+        }
       }
       setLoaded(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (loaded) {
-      AsyncStorage.setItem(`${storagePrefix}notes`, JSON.stringify(notes)).catch(e => console.error(e));
     }
-  }, [notes, loaded, storagePrefix]);
+    loadData();
+  }, [storagePrefix, user]);
+
+  // 2. Save Data (Local + Cloud)
+  useEffect(() => {
+    if (!loaded || !user) return;
+
+    const saveData = async () => {
+      // Save local
+      await AsyncStorage.setItem(`${storagePrefix}notes`, JSON.stringify(notes));
+
+      // Save to Cloud
+      try {
+        await supabase
+          .from('user_notes')
+          .upsert({ user_id: user.id, data: notes, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      } catch (e) {
+        console.error('Notes cloud save failed', e);
+      }
+    };
+
+    const timeoutId = setTimeout(saveData, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [notes, loaded, user, storagePrefix]);
 
   const addNote = (title, content, tags = []) => {
     const newNote = {

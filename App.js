@@ -95,11 +95,13 @@ function MainApp() {
   );
 }
 
-function RootApp() {
-  const { activeProfile } = useProfile();
+import AuthScreen from './src/screens/AuthScreen';
 
-  if (!activeProfile) {
-    return <LandingScreen />;
+function RootApp() {
+  const { user } = useProfile();
+
+  if (!user) {
+    return <AuthScreen />;
   }
 
   return (

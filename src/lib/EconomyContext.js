@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProfile } from './ProfileContext';
+import { supabase } from './supabase';
 
 const EconomyContext = createContext();
 
@@ -15,28 +16,61 @@ const INITIAL_ECONOMY = {
 };
 
 export function EconomyProvider({ children }) {
-  const { storagePrefix } = useProfile();
+  const { storagePrefix, user } = useProfile();
   const [economy, setEconomy] = useState(INITIAL_ECONOMY);
   const [loaded, setLoaded] = useState(false);
 
+  // 1. Initial Load (Local + Cloud)
   useEffect(() => {
-    AsyncStorage.getItem(`${storagePrefix}economy`).then(stored => {
+    async function loadData() {
+      // Local first
+      const stored = await AsyncStorage.getItem(`${storagePrefix}economy`);
       if (stored) {
+        try { setEconomy(JSON.parse(stored)); } catch (e) {}
+      }
+
+      // Cloud sync
+      if (user) {
         try {
-          setEconomy(JSON.parse(stored));
+          const { data, error } = await supabase
+            .from('user_economy')
+            .select('data')
+            .eq('user_id', user.id)
+            .single();
+
+          if (data && data.data) {
+            setEconomy(data.data);
+          }
         } catch (e) {
-          console.error('Failed to parse stored economy', e);
+          console.log('Economy cloud fetch failed', e);
         }
       }
       setLoaded(true);
-    });
-  }, []);
-
-  useEffect(() => {
-    if (loaded) {
-      AsyncStorage.setItem(`${storagePrefix}economy`, JSON.stringify(economy)).catch(e => console.error('Failed to save economy', e));
     }
-  }, [economy, loaded, storagePrefix]);
+    loadData();
+  }, [storagePrefix, user]);
+
+  // 2. Save Data (Local + Cloud)
+  useEffect(() => {
+    if (!loaded || !user) return;
+
+    const saveData = async () => {
+      // Save local
+      await AsyncStorage.setItem(`${storagePrefix}economy`, JSON.stringify(economy));
+
+      // Save to Cloud
+      try {
+        await supabase
+          .from('user_economy')
+          .upsert({ user_id: user.id, data: economy, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      } catch (e) {
+        console.error('Economy cloud save failed', e);
+      }
+    };
+
+    const timeoutId = setTimeout(saveData, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [economy, loaded, user, storagePrefix]);
 
   const addReward = (gainedPoints, gainedXp) => {
     setEconomy(prev => {

@@ -12,7 +12,7 @@ export default function SettingsScreen() {
   const { resetEconomy, cheatEconomy } = useEconomy();
   const { setTasks } = useTasks();
   const { isDark, toggleTheme, colors } = useTheme();
-  const { clearProfile, activeProfile, storagePrefix } = useProfile();
+  const { logout, user, storagePrefix } = useProfile();
   const [exportedData, setExportData] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [importDataText, setImportDataText] = useState('');
@@ -278,7 +278,7 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        <Text style={styles.sectionLabel}>Configuration</Text>
+        <Text style={styles.sectionLabel}>Account</Text>
         <View style={styles.card}>
           <View style={styles.cardRow}>
             <View style={[styles.iconBox, { backgroundColor: '#f3f4f6' }]}>
@@ -297,11 +297,11 @@ export default function SettingsScreen() {
           
           <TouchableOpacity style={[styles.cardRow, styles.cardRowLast]} onPress={() => {
             Alert.alert(
-              "Switch Profile",
-              "Are you sure you want to exit to the profile chooser?",
+              "Sign Out",
+              "Are you sure you want to sign out? Your progress will stay synced in the cloud.",
               [
                 { text: "Cancel", style: "cancel" },
-                { text: "Log Out", style: "destructive", onPress: clearProfile }
+                { text: "Sign Out", style: "destructive", onPress: logout }
               ]
             );
           }}>
@@ -309,8 +309,8 @@ export default function SettingsScreen() {
               <Ionicons name="log-out" size={20} color={colors.red} />
             </View>
             <View style={styles.rowBody}>
-              <Text style={styles.rowTitle}>Switch Profile</Text>
-              <Text style={styles.rowDesc}>Current: {PROFILES.find(p => p.id === activeProfile)?.name || 'Unknown'}</Text>
+              <Text style={styles.rowTitle}>Sign Out</Text>
+              <Text style={styles.rowDesc}>Logged in as {user?.email}</Text>
             </View>
             <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
           </TouchableOpacity>
