@@ -1,0 +1,1271 @@
+import { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  View, Text, StyleSheet, TouchableOpacity, Modal,
+  TextInput, FlatList, Alert, SafeAreaView, ScrollView,
+  KeyboardAvoidingView, Platform, Dimensions,
+} from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Ionicons } from '@expo/vector-icons';
+import { colors } from '../theme';
+import { useTheme } from '../lib/ThemeContext';
+import ScrollToTop from '../components/ScrollToTop';
+
+const SCREEN_W = Dimensions.get('window').width;
+
+// ── Default categories ───────────────────────────────────────────────────────
+const DEFAULT_CATEGORIES = [
+  { key: 'work',     label: 'Work',      color: '#4f46e5', icon: 'briefcase-outline' },
+  { key: 'study',    label: 'Study',     color: '#0891b2', icon: 'book-outline' },
+  { key: 'creative', label: 'Creative',  color: '#7c3aed', icon: 'color-palette-outline' },
+  { key: 'exercise', label: 'Exercise',  color: '#059669', icon: 'fitness-outline' },
+  { key: 'chores',   label: 'Chores',    color: '#d97706', icon: 'home-outline' },
+  { key: 'personal', label: 'Personal',  color: '#ec4899', icon: 'person-outline' },
+  { key: 'other',    label: 'Other',     color: '#6b7280', icon: 'ellipsis-horizontal-outline' },
+];
+
+// ── Time formatting ──────────────────────────────────────────────────────────
+function fmtTimer(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  return h > 0
+    ? `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    : `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function fmtDuration(minutes) {
+  if (minutes < 60) return `${minutes}m`;
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m > 0 ? `${h}h ${m}m` : `${h}h`;
+}
+
+function fmtDate(date) {
+  return `${date.getMonth() + 1}/${date.getDate()}/${date.getFullYear()}`;
+}
+
+function fmtDateShort(date) {
+  const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return days[date.getDay()];
+}
+
+// ── Date helpers ─────────────────────────────────────────────────────────────
+function isSameDay(d1, d2) {
+  return d1.getFullYear() === d2.getFullYear() &&
+    d1.getMonth() === d2.getMonth() &&
+    d1.getDate() === d2.getDate();
+}
+
+function getWeekStart(date) {
+  const d = new Date(date);
+  d.setDate(d.getDate() - d.getDay());
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function getMonthStart(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+// ── Generate sample data for demo ───────────────────────────────────────────
+let nextEntryId = 100;
+function generateSampleEntries() {
+  const entries = [];
+  const now = new Date();
+  const cats = DEFAULT_CATEGORIES;
+
+  // Generate entries for the past 30 days
+  for (let d = 0; d < 14; d++) {
+    const date = new Date(now);
+    date.setDate(date.getDate() - d);
+    const count = Math.floor(Math.random() * 3) + 1;
+    for (let i = 0; i < count; i++) {
+      const cat = cats[Math.floor(Math.random() * cats.length)];
+      const minutes = (Math.floor(Math.random() * 6) + 1) * 15; // 15–90 min
+      entries.push({
+        id: String(nextEntryId++),
+        category: cat.key,
+        minutes,
+        date: new Date(date.getFullYear(), date.getMonth(), date.getDate()),
+        note: '',
+      });
+    }
+  }
+  return entries;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// BAR CHART COMPONENT
+// ═════════════════════════════════════════════════════════════════════════════
+
+function BarChart({ data, maxVal, barWidth = 28 }) {
+  const safeMax = maxVal || 1;
+  return (
+    <View style={chartStyles.chart}>
+      <View style={chartStyles.bars}>
+        {data.map((item, i) => {
+          const height = Math.max((item.value / safeMax) * 100, 2);
+          return (
+            <View key={i} style={chartStyles.barCol}>
+              <View style={chartStyles.barTrack}>
+                <View style={[chartStyles.bar, {
+                  height: `${height}%`,
+                  backgroundColor: item.color || colors.primary,
+                  width: barWidth,
+                }]} />
+              </View>
+              <Text style={chartStyles.barLabel}>{item.label}</Text>
+              {item.value > 0 && (
+                <Text style={chartStyles.barValue}>{fmtDuration(item.value)}</Text>
+              )}
+            </View>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const chartStyles = StyleSheet.create({
+  chart: { marginTop: 8 },
+  bars: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-around', gap: 4 },
+  barCol: { alignItems: 'center', flex: 1 },
+  barTrack: { height: 120, justifyContent: 'flex-end', alignItems: 'center' },
+  bar: { borderRadius: 6, minHeight: 4 },
+  barLabel: { fontSize: 11, color: colors.textMuted, marginTop: 6, fontWeight: '500' },
+  barValue: { fontSize: 10, color: colors.textSecondary, marginTop: 2, fontWeight: '600' },
+});
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CATEGORY BREAKDOWN
+// ═════════════════════════════════════════════════════════════════════════════
+
+function CategoryBreakdown({ entries, period, categories = DEFAULT_CATEGORIES }) {
+  const cats = categories;
+  const now = new Date();
+
+  const filtered = entries.filter(e => {
+    if (period === 'today') return isSameDay(e.date, now);
+    if (period === 'week') return e.date >= getWeekStart(now);
+    if (period === 'month') return e.date >= getMonthStart(now);
+    return true;
+  });
+
+  const totals = {};
+  filtered.forEach(e => {
+    totals[e.category] = (totals[e.category] || 0) + e.minutes;
+  });
+
+  const sorted = cats
+    .map(c => ({ ...c, minutes: totals[c.key] || 0 }))
+    .filter(c => c.minutes > 0)
+    .sort((a, b) => b.minutes - a.minutes);
+
+  const totalMins = sorted.reduce((acc, c) => acc + c.minutes, 0);
+
+  if (sorted.length === 0) {
+    return <Text style={styles.emptyNote}>No time logged for this period.</Text>;
+  }
+
+  return (
+    <View style={styles.breakdownList}>
+      {sorted.map(cat => {
+        const pct = totalMins > 0 ? (cat.minutes / totalMins) * 100 : 0;
+        return (
+          <View key={cat.key} style={styles.breakdownRow}>
+            <View style={[styles.breakdownIcon, { backgroundColor: cat.color + '18' }]}>
+              <Ionicons name={cat.icon} size={16} color={cat.color} />
+            </View>
+            <View style={styles.breakdownInfo}>
+              <View style={styles.breakdownTop}>
+                <Text style={styles.breakdownLabel}>{cat.label}</Text>
+                <Text style={styles.breakdownTime}>{fmtDuration(cat.minutes)}</Text>
+              </View>
+              <View style={styles.breakdownBarBg}>
+                <View style={[styles.breakdownBarFill, { width: `${pct}%`, backgroundColor: cat.color }]} />
+              </View>
+            </View>
+            <Text style={styles.breakdownPct}>{Math.round(pct)}%</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ADD / EDIT ENTRY MODAL
+// ═════════════════════════════════════════════════════════════════════════════
+
+function EntryModal({ visible, entry, onSave, onDelete, onClose, categories = DEFAULT_CATEGORIES }) {
+  const isEdit = entry && entry.id;
+  const [category, setCategory] = useState(entry?.category || categories[0]?.key || 'work');
+  const [hours, setHours]       = useState('');
+  const [mins, setMins]         = useState('');
+  const [dateStr, setDateStr]   = useState('');
+  const [note, setNote]         = useState('');
+
+  useEffect(() => {
+    if (visible && entry) {
+      setCategory(entry.category || 'work');
+      const totalMin = entry.minutes || 0;
+      setHours(totalMin >= 60 ? String(Math.floor(totalMin / 60)) : '');
+      setMins(String(totalMin % 60 || (totalMin < 60 ? totalMin : 0)));
+      setDateStr(entry.date ? fmtDate(entry.date) : fmtDate(new Date()));
+      setNote(entry.note || '');
+    } else if (visible) {
+      setCategory('work');
+      setHours('');
+      setMins('');
+      setDateStr(fmtDate(new Date()));
+      setNote('');
+    }
+  }, [visible, entry]);
+
+  function handleSave() {
+    const h = parseInt(hours) || 0;
+    const m = parseInt(mins) || 0;
+    const totalMin = h * 60 + m;
+    if (totalMin <= 0) {
+      Alert.alert('Invalid Time', 'Please enter a time greater than 0.');
+      return;
+    }
+
+    // Parse date
+    const parts = dateStr.split('/');
+    let date = new Date();
+    if (parts.length === 3) {
+      const parsed = new Date(parseInt(parts[2]), parseInt(parts[0]) - 1, parseInt(parts[1]));
+      if (!isNaN(parsed.getTime())) date = parsed;
+    }
+
+    onSave({
+      id: entry?.id || String(nextEntryId++),
+      category,
+      minutes: totalMin,
+      date,
+      note,
+    });
+  }
+
+  function confirmDelete() {
+    Alert.alert('Delete Entry', 'Delete this time entry?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: () => onDelete(entry.id) },
+    ]);
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
+      <SafeAreaView style={styles.modalScreen}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
+            <Ionicons name="close" size={22} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>{isEdit ? 'Edit Entry' : 'Add Time'}</Text>
+          {isEdit ? (
+            <TouchableOpacity onPress={confirmDelete} style={styles.iconBtn}>
+              <Ionicons name="trash-outline" size={20} color="#ef4444" />
+            </TouchableOpacity>
+          ) : (
+            <View style={{ width: 38 }} />
+          )}
+        </View>
+
+        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          {/* Category */}
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.fieldLabel}>Category</Text>
+          </View>
+          <View style={styles.catGrid}>
+            {categories.map(cat => (
+              <TouchableOpacity
+                key={cat.key}
+                style={[styles.catChip, category === cat.key && { backgroundColor: cat.color || '#6366f1', borderColor: cat.color || '#6366f1' }]}
+                onPress={() => setCategory(cat.key)}
+              >
+                {cat.icon.indexOf('-') > -1 ? (
+                  <Ionicons name={cat.icon} size={14} color={category === cat.key ? '#fff' : (cat.color || '#6366f1')} />
+                ) : (
+                  <Text style={{ fontSize: 13, marginRight: 4 }}>{cat.icon}</Text>
+                )}
+                <Text style={[styles.catChipText, category === cat.key && { color: '#fff' }]}>{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Duration */}
+          <Text style={styles.fieldLabel}>Duration</Text>
+          <View style={styles.durationRow}>
+            <View style={styles.durationField}>
+              <TextInput
+                style={styles.durationInput}
+                placeholder="0"
+                placeholderTextColor="#9ca3af"
+                value={hours}
+                onChangeText={setHours}
+                keyboardType="number-pad"
+                maxLength={2}
+              />
+              <Text style={styles.durationUnit}>hrs</Text>
+            </View>
+            <View style={styles.durationField}>
+              <TextInput
+                style={styles.durationInput}
+                placeholder="0"
+                placeholderTextColor="#9ca3af"
+                value={mins}
+                onChangeText={setMins}
+                keyboardType="number-pad"
+                maxLength={2}
+              />
+              <Text style={styles.durationUnit}>min</Text>
+            </View>
+          </View>
+
+          {/* Quick durations */}
+          <View style={styles.quickDurations}>
+            {[15, 30, 45, 60, 90, 120].map(m => (
+              <TouchableOpacity key={m} style={styles.quickDurBtn} onPress={() => {
+                setHours(m >= 60 ? String(Math.floor(m / 60)) : '');
+                setMins(String(m % 60 || (m < 60 ? m : 0)));
+              }}>
+                <Text style={styles.quickDurText}>{fmtDuration(m)}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {/* Date */}
+          <Text style={styles.fieldLabel}>Date</Text>
+          <TextInput
+            style={styles.fieldInput}
+            placeholder="MM/DD/YYYY"
+            placeholderTextColor="#9ca3af"
+            value={dateStr}
+            onChangeText={setDateStr}
+          />
+
+          {/* Note */}
+          <Text style={styles.fieldLabel}>Note (optional)</Text>
+          <TextInput
+            style={[styles.fieldInput, { height: 70, textAlignVertical: 'top' }]}
+            placeholder="What did you work on?"
+            placeholderTextColor="#9ca3af"
+            value={note}
+            onChangeText={setNote}
+            multiline
+          />
+
+          {/* Save */}
+          <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
+            <Text style={styles.saveText}>{isEdit ? 'Save Changes' : 'Add Entry'}</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// CATEGORY MANAGER MODAL
+// ═════════════════════════════════════════════════════════════════════════════
+
+function CategoryManagerModal({ visible, categories, onClose, onSave }) {
+  const [drafts, setDrafts] = useState(categories);
+
+  useEffect(() => {
+    if (visible) setDrafts(categories);
+  }, [visible, categories]);
+
+  function addCat() {
+    setDrafts([...drafts, { key: 'cat_' + Date.now(), label: 'New Category', icon: '✨', color: '#6366f1' }]);
+  }
+
+  function updateCat(idx, field, val) {
+    const next = [...drafts];
+    next[idx] = { ...next[idx], [field]: val };
+    setDrafts(next);
+  }
+
+  function removeCat(idx) {
+    setDrafts(drafts.filter((_, i) => i !== idx));
+  }
+
+  return (
+    <Modal visible={visible} animationType="slide">
+      <SafeAreaView style={styles.modalScreen}>
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
+            <Ionicons name="close" size={22} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Edit Categories</Text>
+          <TouchableOpacity onPress={() => onSave(drafts)} style={styles.iconBtn}>
+            <Ionicons name="checkmark" size={22} color="#10b981" />
+          </TouchableOpacity>
+        </View>
+        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          <Text style={styles.hint}>You can use any emoji for the icon! (If you type an ionicons name, it will render the icon).</Text>
+          {drafts.map((cat, idx) => (
+            <View key={cat.key || idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+              <TextInput 
+                style={[styles.fieldInput, { width: 50, textAlign: 'center' }]} 
+                value={cat.icon} 
+                onChangeText={(v) => updateCat(idx, 'icon', v)}
+                placeholder="✨" 
+              />
+              <TextInput 
+                style={[styles.fieldInput, { flex: 1 }]} 
+                value={cat.label} 
+                onChangeText={(v) => updateCat(idx, 'label', v)}
+                placeholder="Category Name" 
+              />
+              <TouchableOpacity onPress={() => removeCat(idx)} style={{ padding: 8 }}>
+                <Ionicons name="trash-outline" size={20} color="#ef4444" />
+              </TouchableOpacity>
+            </View>
+          ))}
+          <TouchableOpacity style={styles.manageBtn} onPress={addCat} style={{ marginTop: 12, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#6366f1', alignItems: 'center' }}>
+            <Text style={{ color: '#6366f1', fontWeight: '600' }}>+ Add Category</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </SafeAreaView>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MAIN FOCUS SCREEN
+// ═════════════════════════════════════════════════════════════════════════════
+
+export default function FocusScreen() {
+  const [entries, setEntries]       = useState([]);
+  const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
+  const [loaded, setLoaded]         = useState(false);
+  const [timerRunning, setTimerRunning] = useState(false);
+  const [timerSeconds, setTimerSeconds] = useState(0);
+  const [timerCategory, setTimerCategory] = useState('work');
+  const [editEntry, setEditEntry]   = useState(null);
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showCatModal, setShowCatModal] = useState(false);
+  const [statsPeriod, setStatsPeriod] = useState('today');
+  const intervalRef = useRef(null);
+  const scrollRef = useRef(null);
+  const [showScrollTop, setShowScrollTop] = useState(false);
+
+  const handleScroll = (event) => {
+    const y = event.nativeEvent.contentOffset.y;
+    setShowScrollTop(y > 300);
+  };
+
+  useEffect(() => {
+    Promise.all([
+      AsyncStorage.getItem('@ADHD_focus_entries'),
+      AsyncStorage.getItem('@ADHD_focus_cats')
+    ]).then(([storedEntries, storedCats]) => {
+      if (storedEntries) {
+        try { setEntries(JSON.parse(storedEntries).map(e => ({ ...e, date: new Date(e.date) }))); } catch(e) {}
+      } else {
+        setEntries(generateSampleEntries());
+      }
+      
+      if (storedCats) {
+        try { setCategories(JSON.parse(storedCats)); } catch(e) {}
+      }
+      setLoaded(true);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (loaded) {
+      AsyncStorage.setItem('@ADHD_focus_entries', JSON.stringify(entries)).catch(e => console.error(e));
+      AsyncStorage.setItem('@ADHD_focus_cats', JSON.stringify(categories)).catch(e => console.error(e));
+    }
+  }, [entries, categories, loaded]);
+
+  // Timer tick
+  useEffect(() => {
+    if (timerRunning) {
+      intervalRef.current = setInterval(() => {
+        setTimerSeconds(s => s + 1);
+      }, 1000);
+    } else {
+      clearInterval(intervalRef.current);
+    }
+    return () => clearInterval(intervalRef.current);
+  }, [timerRunning]);
+
+  function startTimer() {
+    setTimerRunning(true);
+  }
+
+  function pauseTimer() {
+    setTimerRunning(false);
+  }
+
+  function stopAndLog() {
+    setTimerRunning(false);
+    const minutes = Math.max(1, Math.round(timerSeconds / 60));
+    if (timerSeconds < 10) {
+      setTimerSeconds(0);
+      return;
+    }
+
+    const newEntry = {
+      id: String(nextEntryId++),
+      category: timerCategory,
+      minutes,
+      date: new Date(),
+      note: '',
+    };
+    setEntries(prev => [newEntry, ...prev]);
+    setTimerSeconds(0);
+    Alert.alert('Time Logged!', `${fmtDuration(minutes)} of ${categories.find(c => c.key === timerCategory)?.label || 'Focus'} logged.`);
+  }
+
+  function resetTimer() {
+    Alert.alert('Reset Timer', 'Discard current timer?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reset', style: 'destructive', onPress: () => { setTimerRunning(false); setTimerSeconds(0); } },
+    ]);
+  }
+
+  function saveEntry(entry) {
+    setEntries(prev => {
+      const exists = prev.find(e => e.id === entry.id);
+      if (exists) return prev.map(e => e.id === entry.id ? entry : e);
+      return [entry, ...prev];
+    });
+    setEditEntry(null);
+    setShowAddModal(false);
+  }
+
+  function deleteEntry(id) {
+    setEntries(prev => prev.filter(e => e.id !== id));
+    setEditEntry(null);
+  }
+
+  // ── Stats calculations ──────────────────────────────────────────────────
+  const now = new Date();
+
+  // Today total
+  const todayEntries = entries.filter(e => isSameDay(e.date, now));
+  const todayTotal = todayEntries.reduce((acc, e) => acc + e.minutes, 0);
+
+  // Week chart data (Sun–Sat)
+  const weekStart = getWeekStart(now);
+  const weekData = Array.from({ length: 7 }, (_, i) => {
+    const day = new Date(weekStart);
+    day.setDate(day.getDate() + i);
+    const dayEntries = entries.filter(e => isSameDay(e.date, day));
+    const total = dayEntries.reduce((acc, e) => acc + e.minutes, 0);
+    return { label: fmtDateShort(day), value: total, color: isSameDay(day, now) ? colors.primary : '#c7d2fe' };
+  });
+  const weekMax = Math.max(...weekData.map(d => d.value), 60);
+  const weekTotal = weekData.reduce((acc, d) => acc + d.value, 0);
+
+  // Month data — last 4 weeks
+  const monthData = Array.from({ length: 4 }, (_, wi) => {
+    const wStart = new Date(now);
+    wStart.setDate(wStart.getDate() - (3 - wi) * 7 - wStart.getDay());
+    wStart.setHours(0, 0, 0, 0);
+    const wEnd = new Date(wStart);
+    wEnd.setDate(wEnd.getDate() + 6);
+    wEnd.setHours(23, 59, 59, 999);
+    const weekEntries = entries.filter(e => e.date >= wStart && e.date <= wEnd);
+    const total = weekEntries.reduce((acc, e) => acc + e.minutes, 0);
+    return {
+      label: `W${wi + 1}`,
+      value: total,
+      color: wi === 3 ? colors.primary : '#c7d2fe',
+    };
+  });
+  const monthMax = Math.max(...monthData.map(d => d.value), 60);
+  const monthTotal = monthData.reduce((acc, d) => acc + d.value, 0);
+
+  // Recent entries (last 20)
+  const recentEntries = [...entries]
+    .sort((a, b) => b.date - a.date)
+    .slice(0, 20);
+
+  const currentCat = categories.find(c => c.key === timerCategory) || categories[0];
+
+  return (
+    <SafeAreaView style={styles.screen}>
+      <ScrollView 
+        ref={scrollRef} 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
+      >
+
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Ionicons name="timer-outline" size={24} color={colors.primary} />
+            <Text style={styles.headerTitle}>Focus Timer</Text>
+          </View>
+        </View>
+
+        <View style={styles.timerSection}>
+          {/* Category selector for timer */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll} contentContainerStyle={styles.catScrollContent}>
+            {categories.map(cat => (
+              <TouchableOpacity
+                key={cat.key}
+                style={[styles.timerCatChip, timerCategory === cat.key && { backgroundColor: cat.color || '#6366f1', borderColor: cat.color || '#6366f1' }]}
+                onPress={() => !timerRunning && setTimerCategory(cat.key)}
+              >
+                {cat.icon.indexOf('-') > -1 ? (
+                  <Ionicons name={cat.icon} size={13} color={timerCategory === cat.key ? '#fff' : (cat.color || '#6b7280')} />
+                ) : (
+                  <Text style={{ fontSize: 11 }}>{cat.icon}</Text>
+                )}
+                <Text style={[styles.timerCatText, timerCategory === cat.key && { color: '#fff' }]}>{cat.label}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity style={[styles.timerCatChip, { paddingHorizontal: 10 }]} onPress={() => setShowCatModal(true)}>
+              <Ionicons name="settings-outline" size={14} color="#6b7280" />
+            </TouchableOpacity>
+          </ScrollView>
+
+          {/* Timer display */}
+          <View style={[styles.timerDisplay, { borderColor: currentCat?.color || colors.primary }]}>
+            <Text style={[styles.timerText, { color: currentCat?.color || colors.primary }]}>
+              {fmtTimer(timerSeconds)}
+            </Text>
+            {timerRunning && (
+              <View style={[styles.timerPulse, { backgroundColor: currentCat?.color || colors.primary }]} />
+            )}
+          </View>
+
+          {/* Timer controls */}
+          <View style={styles.timerControls}>
+            {!timerRunning && timerSeconds === 0 && (
+              <TouchableOpacity style={[styles.timerBtn, styles.timerStart, { backgroundColor: currentCat?.color || colors.primary }]} onPress={startTimer}>
+                <Ionicons name="play" size={22} color="#fff" />
+                <Text style={styles.timerBtnText}>Start</Text>
+              </TouchableOpacity>
+            )}
+            {timerRunning && (
+              <>
+                <TouchableOpacity style={[styles.timerBtn, styles.timerPause]} onPress={pauseTimer}>
+                  <Ionicons name="pause" size={20} color={colors.amber} />
+                  <Text style={[styles.timerBtnTextSm, { color: colors.amber }]}>Pause</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.timerBtn, styles.timerStop]} onPress={stopAndLog}>
+                  <Ionicons name="stop" size={20} color="#ef4444" />
+                  <Text style={[styles.timerBtnTextSm, { color: '#ef4444' }]}>Log</Text>
+                </TouchableOpacity>
+              </>
+            )}
+            {!timerRunning && timerSeconds > 0 && (
+              <>
+                <TouchableOpacity style={[styles.timerBtn, styles.timerStart, { backgroundColor: currentCat?.color || colors.primary }]} onPress={startTimer}>
+                  <Ionicons name="play" size={20} color="#fff" />
+                  <Text style={styles.timerBtnText}>Resume</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.timerBtn, styles.timerStop]} onPress={stopAndLog}>
+                  <Ionicons name="checkmark" size={20} color={colors.green} />
+                  <Text style={[styles.timerBtnTextSm, { color: colors.green }]}>Log</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.timerBtn, styles.timerPause]} onPress={resetTimer}>
+                  <Ionicons name="refresh" size={18} color={colors.textMuted} />
+                  <Text style={[styles.timerBtnTextSm, { color: colors.textMuted }]}>Reset</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+        </View>
+
+        {/* ── Add manual entry button ── */}
+        <TouchableOpacity style={styles.addManualBtn} onPress={() => setShowAddModal(true)}>
+          <Ionicons name="add-circle-outline" size={18} color={colors.primary} />
+          <Text style={styles.addManualText}>Add Time Manually</Text>
+        </TouchableOpacity>
+
+        {/* ── Today Summary ── */}
+        <View style={styles.todayCard}>
+          <View style={styles.todayTop}>
+            <Text style={styles.todayLabel}>Today</Text>
+            <Text style={styles.todayTotal}>{fmtDuration(todayTotal)}</Text>
+          </View>
+          {todayEntries.length > 0 ? (
+            <CategoryBreakdown entries={entries} period="today" categories={categories} />
+          ) : (
+            <Text style={styles.emptyNote}>No time logged today. Start the timer or add manually!</Text>
+          )}
+        </View>
+
+        {/* ── Stats Period Selector ── */}
+        <View style={styles.statsTabs}>
+          {[
+            { key: 'week', label: 'This Week' },
+            { key: 'month', label: 'This Month' },
+          ].map(tab => (
+            <TouchableOpacity
+              key={tab.key}
+              style={[styles.statsTab, statsPeriod === tab.key && styles.statsTabActive]}
+              onPress={() => setStatsPeriod(tab.key)}
+            >
+              <Text style={[styles.statsTabText, statsPeriod === tab.key && styles.statsTabTextActive]}>{tab.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        {/* ── Weekly Chart ── */}
+        {statsPeriod === 'week' && (
+          <View style={styles.chartCard}>
+            <View style={styles.chartHeader}>
+              <Text style={styles.chartTitle}>Weekly Overview</Text>
+              <Text style={styles.chartTotal}>{fmtDuration(weekTotal)} total</Text>
+            </View>
+            <BarChart data={weekData} maxVal={weekMax} barWidth={30} />
+            <View style={styles.divider} />
+            <Text style={styles.breakdownTitle}>By Category</Text>
+            <CategoryBreakdown entries={entries} period="week" categories={categories} />
+          </View>
+        )}
+
+        {/* ── Monthly Chart ── */}
+        {statsPeriod === 'month' && (
+          <View style={styles.chartCard}>
+            <View style={styles.chartHeader}>
+              <Text style={styles.chartTitle}>Monthly Overview</Text>
+              <Text style={styles.chartTotal}>{fmtDuration(monthTotal)} total</Text>
+            </View>
+            <BarChart data={monthData} maxVal={monthMax} barWidth={44} />
+            <View style={styles.divider} />
+            <Text style={styles.breakdownTitle}>By Category</Text>
+            <CategoryBreakdown entries={entries} period="month" categories={categories} />
+          </View>
+        )}
+
+        {/* ── Recent Entries ── */}
+        <View style={styles.recentSection}>
+          <Text style={styles.sectionTitle}>Recent Entries</Text>
+          {recentEntries.length === 0 ? (
+            <Text style={styles.emptyNote}>No entries yet.</Text>
+          ) : (
+            recentEntries.map(entry => {
+              const cat = categories.find(c => c.key === entry.category) || categories[0] || DEFAULT_CATEGORIES[6];
+              return (
+                <TouchableOpacity key={entry.id} style={styles.entryRow} onPress={() => setEditEntry(entry)}>
+                  <View style={[styles.entryCatIcon, { backgroundColor: cat.color + '18' }]}>
+                    <Ionicons name={cat.icon} size={16} color={cat.color} />
+                  </View>
+                  <View style={styles.entryInfo}>
+                    <Text style={styles.entryCategory}>{cat.label}</Text>
+                    <Text style={styles.entryMeta}>
+                      {fmtDate(entry.date)} · {fmtDuration(entry.minutes)}
+                      {entry.note ? ` · ${entry.note}` : ''}
+                    </Text>
+                  </View>
+                  <Text style={[styles.entryDuration, { color: cat.color }]}>{fmtDuration(entry.minutes)}</Text>
+                  <Ionicons name="chevron-forward" size={14} color="#d1d5db" />
+                </TouchableOpacity>
+              );
+            })
+          )}
+        </View>
+      </ScrollView>
+
+      <EntryModal
+        visible={showAddModal}
+        entry={null}
+        onSave={saveEntry}
+        onDelete={deleteEntry}
+        onClose={() => setShowAddModal(false)}
+        categories={categories}
+      />
+
+      {/* Edit modal */}
+      {editEntry && (
+        <EntryModal
+          visible={true}
+          entry={editEntry}
+          onSave={saveEntry}
+          onDelete={deleteEntry}
+          onClose={() => setEditEntry(null)}
+          categories={categories}
+        />
+      )}
+
+      {/* Cat Manager */}
+      <CategoryManagerModal 
+        visible={showCatModal}
+        categories={categories}
+        onSave={(newCats) => { setCategories(newCats); setShowCatModal(false); }}
+        onClose={() => setShowCatModal(false)}
+      />
+      {showScrollTop && <ScrollToTop scrollRef={scrollRef} />}
+    </SafeAreaView>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// STYLES
+// ═════════════════════════════════════════════════════════════════════════════
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollContent: {
+    paddingBottom: 60,
+  },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8, marginBottom: 12 },
+  headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  headerTitle: { fontSize: 24, fontWeight: '800', color: '#111827' },
+
+  // Section title
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+  },
+
+  // Timer
+  timerSection: {
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  catScroll: {
+    paddingLeft: 20,
+    marginBottom: 16,
+  },
+  catScrollContent: {
+    gap: 8,
+    paddingRight: 20,
+  },
+  timerCatChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+  },
+  timerCatText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  timerDisplay: {
+    alignSelf: 'center',
+    width: SCREEN_W * 0.55,
+    height: SCREEN_W * 0.55,
+    borderRadius: SCREEN_W * 0.275,
+    borderWidth: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    backgroundColor: '#fafafa',
+  },
+  timerText: {
+    fontSize: 42,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  timerPulse: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    opacity: 0.8,
+  },
+  timerControls: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
+    paddingHorizontal: 20,
+  },
+  timerBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 24,
+    paddingVertical: 13,
+    borderRadius: 12,
+  },
+  timerStart: {
+    backgroundColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
+  },
+  timerPause: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+  },
+  timerStop: {
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+  },
+  timerBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+  timerBtnTextSm: {
+    fontWeight: '600',
+    fontSize: 14,
+  },
+
+  // Add manual
+  addManualBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 16,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
+  },
+  addManualText: {
+    color: colors.primary,
+    fontWeight: '600',
+    fontSize: 15,
+  },
+
+  // Today card
+  todayCard: {
+    margin: 20,
+    marginBottom: 0,
+    padding: 16,
+    backgroundColor: '#fafafa',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  todayTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  todayLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  todayTotal: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+
+  // Stats tabs
+  statsTabs: {
+    flexDirection: 'row',
+    marginHorizontal: 20,
+    marginTop: 20,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 10,
+    padding: 3,
+  },
+  statsTab: {
+    flex: 1,
+    paddingVertical: 9,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  statsTabActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2,
+  },
+  statsTabText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: colors.textMuted,
+  },
+  statsTabTextActive: {
+    color: colors.textPrimary,
+    fontWeight: '600',
+  },
+
+  // Chart card
+  chartCard: {
+    margin: 20,
+    marginBottom: 0,
+    padding: 16,
+    backgroundColor: '#fafafa',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  chartTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  chartTotal: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: 14,
+  },
+  breakdownTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 10,
+  },
+
+  // Category breakdown
+  breakdownList: {
+    gap: 10,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  breakdownIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  breakdownInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  breakdownTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  breakdownLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  breakdownTime: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  breakdownBarBg: {
+    height: 6,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 3,
+  },
+  breakdownBarFill: {
+    height: 6,
+    borderRadius: 3,
+    minWidth: 4,
+  },
+  breakdownPct: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textMuted,
+    width: 36,
+    textAlign: 'right',
+  },
+
+  // Empty note
+  emptyNote: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingVertical: 12,
+  },
+
+  // Recent entries
+  recentSection: {
+    marginTop: 8,
+    paddingBottom: 20,
+  },
+  entryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: 10,
+  },
+  entryCatIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  entryInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  entryCategory: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  entryMeta: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  entryDuration: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+
+  // Modal
+  modalScreen: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: colors.textPrimary,
+  },
+  iconBtn: {
+    padding: 8,
+    borderRadius: 8,
+  },
+  modalBody: {
+    padding: 20,
+    paddingBottom: 60,
+    gap: 4,
+  },
+  fieldLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    color: colors.textPrimary,
+    backgroundColor: '#fafafa',
+  },
+  catGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  catChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+  },
+  catChipText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  durationRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  durationField: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: '#fafafa',
+  },
+  durationInput: {
+    flex: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.textPrimary,
+    textAlign: 'center',
+    paddingVertical: 8,
+  },
+  durationUnit: {
+    fontSize: 14,
+    color: colors.textMuted,
+    fontWeight: '500',
+  },
+  quickDurations: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 8,
+  },
+  quickDurBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    backgroundColor: '#f3f4f6',
+  },
+  quickDurText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  saveBtn: {
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  saveText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 16,
+  },
+});
