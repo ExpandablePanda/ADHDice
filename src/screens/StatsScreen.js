@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  Dimensions, TouchableOpacity, Animated
+  Dimensions, TouchableOpacity, Animated, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -231,7 +231,7 @@ export default function StatsScreen() {
   if (!loaded) return null;
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['bottom', 'left', 'right']}>
       <ScrollView 
         ref={scrollRef} 
         contentContainerStyle={styles.scrollContent} 
@@ -438,7 +438,7 @@ const styles = StyleSheet.create({
   
   header: {
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: Platform.OS === 'ios' ? 12 : 20,
     marginBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
@@ -493,6 +493,13 @@ const styles = StyleSheet.create({
   highlightValue: {
     fontSize: 14,
     fontWeight: '800',
+  },
+  heroGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: 16,
+    gap: 12,
+    marginBottom: 16,
   },
   statCard: {
     width: (SCREEN_W - 32 - 12) / 2,

@@ -71,8 +71,12 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
   }
 
   function handleClose() {
-    onComplete(task.id, { points: baseRoll * multiRoll, xp: Math.floor((baseRoll * multiRoll) / 2) });
-    onClose();
+    if (task) {
+      // onComplete → handleTaskCompleting → setCompletingTask(null) hides the modal
+      onComplete(task.id, { points: baseRoll * multiRoll, xp: Math.floor((baseRoll * multiRoll) / 2) });
+    } else {
+      onClose();
+    }
   }
 
   if (!visible) return null;

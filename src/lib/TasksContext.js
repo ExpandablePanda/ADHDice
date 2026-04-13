@@ -69,10 +69,10 @@ export function TasksProvider({ children }) {
             // Only update if cloud has content
             isRemoteUpdateRef.current = true;
             if (Array.isArray(data.data)) {
-              setTasks(data.data);
+              setTasks(data.data.filter(Boolean));
             } else if (data.data.tasks) {
-              setTasks(data.data.tasks);
-              if (data.data.history) setTaskHistory(data.data.history);
+              setTasks(data.data.tasks.filter(Boolean));
+              if (data.data.history) setTaskHistory(data.data.history.filter(Boolean));
             }
           }
         } catch (e) {
@@ -101,10 +101,10 @@ export function TasksProvider({ children }) {
           if (remoteTime > lastLocalChangeRef.current + 1000) {
             isRemoteUpdateRef.current = true;
             if (Array.isArray(payload.new.data)) {
-              setTasks(payload.new.data);
+              setTasks(payload.new.data.filter(Boolean));
             } else if (payload.new.data.tasks) {
-              setTasks(payload.new.data.tasks);
-              if (payload.new.data.history) setTaskHistory(payload.new.data.history);
+              setTasks(payload.new.data.tasks.filter(Boolean));
+              if (payload.new.data.history) setTaskHistory(payload.new.data.history.filter(Boolean));
             }
           }
         }
@@ -116,7 +116,7 @@ export function TasksProvider({ children }) {
 
   // 2. Save Data (Debounced)
   useEffect(() => {
-    if (!loaded || !user) return;
+    if (!loaded) return;
 
     // If this update came from the cloud or broadcast, don't trigger a re-save
     if (isRemoteUpdateRef.current) {
@@ -140,32 +140,34 @@ export function TasksProvider({ children }) {
     const saveData = async () => {
       const dataToSave = tasks;
       const historyToSave = taskHistory;
-      
-      // Save local
+
+      // Always save locally (works with or without a logged-in user)
       await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(dataToSave));
       await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(historyToSave));
 
-      // Push to cloud
-      setIsSyncing(true);
-      try {
-        const { error } = await supabase
-          .from('user_tasks')
-          .upsert({ 
-            user_id: user.id, 
-            data: { tasks: dataToSave, history: historyToSave },
-            updated_at: new Date().toISOString()
-          }, { onConflict: 'user_id' });
-        
-        if (error) throw error;
-      } catch (e) {
-        console.error('Tasks cloud save failed', e);
-      } finally {
-        setIsSyncing(false);
+      // Push to cloud only when logged in
+      if (user) {
+        setIsSyncing(true);
+        try {
+          const { error } = await supabase
+            .from('user_tasks')
+            .upsert({
+              user_id: user.id,
+              data: { tasks: dataToSave, history: historyToSave },
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+
+          if (error) throw error;
+        } catch (e) {
+          console.error('Tasks cloud save failed', e);
+        } finally {
+          setIsSyncing(false);
+        }
       }
     };
 
     const timeoutId = setTimeout(saveData, 1500); // 1.5s debounce for multi-device stability
-    
+
     // Add a backup "Save on Exit" for web
     const handleUnload = () => saveData();
     if (Platform.OS === 'web') window.addEventListener('beforeunload', handleUnload);

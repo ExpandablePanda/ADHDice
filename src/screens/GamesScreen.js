@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { useAudioPlayer, setIsAudioActiveAsync } from 'expo-audio';
+import { Audio } from 'expo-av';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  Alert, Animated, Easing, Dimensions, Modal, Image
+  Alert, Animated, Easing, Dimensions, Modal, Image, Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -542,36 +542,47 @@ function WarGame({ onBack, tasks, colors }) {
   const oFlip = useRef(new Animated.Value(0)).current;
   const [waitingForPlayer, setWaitingForPlayer] = useState(false);
 
-  // Audio
-  const flipPlayer = useAudioPlayer(require('../../assets/card-flip.mp3'));
-  const shufflePlayer = useAudioPlayer(require('../../assets/card-shuffle.mp3'));
+  // Audio — use refs to avoid stale-closure unload bug
+  const flipSoundRef = useRef(null);
+  const shuffleSoundRef = useRef(null);
 
   useEffect(() => {
     async function setupAudio() {
       try {
-        await setIsAudioActiveAsync(true);
-        console.log('✅ All sounds pre-loaded successfully');
-      } catch (e) {
-        console.log('Audio setup error:', e);
-      }
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+        });
+      } catch (e) {}
     }
     setupAudio();
+    return () => {
+      if (flipSoundRef.current) flipSoundRef.current.unloadAsync();
+      if (shuffleSoundRef.current) shuffleSoundRef.current.unloadAsync();
+    };
   }, []);
 
   async function playFlipSound() {
     try {
-      if (flipPlayer) {
-        if (flipPlayer.playing) await flipPlayer.seekTo(0);
-        flipPlayer.play();
+      if (flipSoundRef.current) {
+        await flipSoundRef.current.replayAsync();
+      } else {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/card-flip.mp3'));
+        flipSoundRef.current = sound;
+        await sound.playAsync();
       }
     } catch (e) {}
   }
 
   async function playShuffleSound() {
     try {
-      if (shufflePlayer) {
-        if (shufflePlayer.playing) await shufflePlayer.seekTo(0);
-        shufflePlayer.play();
+      if (shuffleSoundRef.current) {
+        await shuffleSoundRef.current.replayAsync();
+      } else {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/card-shuffle.mp3'));
+        shuffleSoundRef.current = sound;
+        await sound.playAsync();
       }
     } catch (e) {}
   }
@@ -882,7 +893,7 @@ export default function GamesScreen() {
   if (currentGame === 'match') return <DopamineMatch onBack={() => setCurrentGame('hub')} colors={colors} tasks={tasks} />;
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['bottom', 'left', 'right']}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} onScroll={handleScroll} scrollEventThrottle={16}>
         <View style={styles.header}><View style={styles.headerLeft}><Ionicons name="game-controller-outline" size={24} color={colors.primary}/><Text style={styles.headerTitle}>Games Hub</Text></View></View>
         <View style={hubStyles.hubGrid}>
@@ -915,7 +926,7 @@ export default function GamesScreen() {
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   scrollContent: { paddingBottom: 60 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
   resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f3f4f6' },

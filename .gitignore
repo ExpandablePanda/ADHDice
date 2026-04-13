@@ -45,3 +45,10 @@ yarn-error.*
 
 # Local Netlify folder
 .netlify
+
+# System and local bloat
+.config/
+.npm/
+.npm_local/
+.expo-home/
+Library/

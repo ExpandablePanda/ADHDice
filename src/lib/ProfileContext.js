@@ -13,6 +13,9 @@ export function ProfileProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setLoaded(true);
+    }).catch(error => {
+      console.error('Session loading failed:', error);
+      setLoaded(true); // Still set loaded to true to show landing/auth
     });
 
     // Listen for auth changes

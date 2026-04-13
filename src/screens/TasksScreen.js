@@ -6,7 +6,7 @@ import {
   ScrollView, Alert, Animated, RefreshControl,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAudioPlayer, setIsAudioActiveAsync } from 'expo-audio';
+import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
 import { useTasks } from '../lib/TasksContext';
@@ -53,7 +53,7 @@ const VIEWS = [
 let nextTaskId    = 5;
 let nextSubtaskId = 30;
 const newSubtask  = title => ({ id: String(nextSubtaskId++), title, status: 'pending', subtasks: [] });
-const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', nextDueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null });
+const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', nextDueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
 
 // ── Recursive subtask helpers ─────────────────────────────────────────────────
 function mapSubtasks(subtasks, fn) {
@@ -235,7 +235,7 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 8 : 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
           <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
             <Ionicons name="close" size={22} color="#6b7280" />
           </TouchableOpacity>
@@ -472,7 +472,7 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
             {(task.dueDate || task.dueTime) ? <View style={styles.metaChip}><Ionicons name="calendar-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{task.dueDate} {task.dueTime}</Text></View> : null}
             {total > 0 && <View style={styles.metaChip}><Ionicons name="checkbox-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{done}/{total}</Text></View>}
             {(task.streak && task.streak > 0) ? <View style={[styles.metaChip, { backgroundColor: '#fee2e2' }]}><Ionicons name="flame" size={10} color="#ef4444" /><Text style={[styles.metaChipText, { color: '#ef4444' }]}>{task.streak}</Text></View> : null}
-            {task.tags.map((tag, i) => <View key={i} style={[styles.metaChip, { backgroundColor: '#ede9fe' }]}><Text style={[styles.metaChipText, { color: '#6366f1' }]}>{tag}</Text></View>)}
+            {(task.tags || []).map((tag, i) => <View key={i} style={[styles.metaChip, { backgroundColor: '#ede9fe' }]}><Text style={[styles.metaChipText, { color: '#6366f1' }]}>{tag}</Text></View>)}
           </View>
         </View>
         <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
@@ -574,8 +574,8 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory }) {
         </Text>
         {(task.subtasks || []).length > 0 && (
           <View style={styles.cardSubtaskPreview}>
-            {task.subtasks.slice(0, 3).map(s => (
-                <View style={[styles.cardSubtaskMiniRow, { marginBottom: 2 }]} key={s.id || s.title}>
+            {task.subtasks.slice(0, 3).map((s, idx) => (
+                <View style={[styles.cardSubtaskMiniRow, { marginBottom: 2 }]} key={s.id || s.title || idx}>
                   <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ffffff', marginRight: 4 }} />
                   <Text style={[styles.cardSubtaskMiniText, { color: '#ffffff' }, (s.status === 'done' || s.status === 'did_my_best') && { textDecorationLine: 'line-through', color: 'rgba(255,255,255,0.8)' }]} numberOfLines={1}>
                     {s.title}
@@ -765,19 +765,23 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.detailScreen}>
+      <SafeAreaView style={styles.detailScreen} edges={['top', 'left', 'right', 'bottom']}>
         <View style={styles.detailHeader}>
-          <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
+          <TouchableOpacity onPress={onClose} style={styles.iconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Ionicons name="close" size={22} color="#6b7280" />
           </TouchableOpacity>
           <Text style={styles.detailHeaderTitle}>{isNew ? 'New Task' : 'Edit Task'}</Text>
           {!isNew
-            ? <TouchableOpacity onPress={confirmDelete} style={styles.iconBtn}><Ionicons name="trash-outline" size={20} color="#ef4444" /></TouchableOpacity>
+            ? <TouchableOpacity onPress={confirmDelete} style={styles.iconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}><Ionicons name="trash-outline" size={20} color="#ef4444" /></TouchableOpacity>
             : <View style={{ width: 36 }} />
           }
         </View>
-
-        <ScrollView contentContainerStyle={styles.detailBody} keyboardShouldPersistTaps="handled">
+        <ScrollView
+          contentContainerStyle={styles.detailBody}
+          keyboardShouldPersistTaps="handled"
+          bounces={false}
+          automaticallyAdjustKeyboardInsets={Platform.OS === 'ios'}
+        >
           {/* Title */}
           <TextInput
             style={styles.titleInput}
@@ -840,6 +844,41 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
                 }}
               />
               <Text style={{ fontSize: 14, color: '#374151', fontWeight: '600' }}>days after completion</Text>
+            </View>
+          )}
+          {draft.frequency === 'Weekly' && (
+            <View style={{ marginBottom: 12 }}>
+              <Text style={[styles.fieldLabel, { marginTop: 8 }]}>Weekly Schedule</Text>
+              <View style={[styles.chipGroup, { marginBottom: 8 }]}>
+                {[
+                  { key: 'fixed_day', label: 'Fixed Day of Week' },
+                  { key: 'days_after', label: '7 Days After Completion' },
+                ].map(opt => (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[styles.optChip, (draft.weeklyMode || 'fixed_day') === opt.key && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+                    onPress={() => setDraft(d => ({ ...d, weeklyMode: opt.key }))}
+                  >
+                    <Text style={[styles.optChipText, (draft.weeklyMode || 'fixed_day') === opt.key && { color: '#fff' }]}>{opt.label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              {(draft.weeklyMode || 'fixed_day') === 'fixed_day' && (
+                <View style={styles.chipGroup}>
+                  {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day, i) => (
+                    <TouchableOpacity
+                      key={day}
+                      style={[styles.optChip, draft.weeklyDay === i && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+                      onPress={() => setDraft(d => ({ ...d, weeklyDay: d.weeklyDay === i ? null : i }))}
+                    >
+                      <Text style={[styles.optChipText, draft.weeklyDay === i && { color: '#fff' }]}>{day}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+              {draft.weeklyMode === 'days_after' && (
+                <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 4 }}>Next due date will be set 7 days after you mark it complete.</Text>
+              )}
             </View>
           )}
 
@@ -1019,7 +1058,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
         </ScrollView>
       </SafeAreaView>
 
-      <CalendarModal 
+      <CalendarModal
         visible={!!calOpenFor} 
         onClose={() => setCalOpenFor(null)} 
         onSelect={(date) => { field(calOpenFor, date); setCalOpenFor(null); }}
@@ -1335,7 +1374,7 @@ function ShuffleModal({ task, onClose, onShuffle, onOpen, onCycleStatus }) {
                     <Text style={[styles.cardChipText, { color: '#ffffff' }]}>{done}/{total}</Text>
                   </View>
                 )}
-                {current.tags.slice(0, 2).map(tag => (
+                {(current.tags || []).slice(0, 2).map(tag => (
                   <View key={tag} style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
                     <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{tag}</Text>
                   </View>
@@ -1519,38 +1558,33 @@ export default function TasksScreen() {
   };
   const { spendPoints, addFreeRoll, removeReward, incrementActiveStreak, incrementMissedStreak } = useEconomy();
   
-  // Audio
-  const shufflePlayer = useAudioPlayer(require('../../assets/card-shuffle.mp3'));
+  // Audio — use ref to avoid stale-closure unload bug
+  const shuffleSoundRef = useRef(null);
 
   useEffect(() => {
     async function setupAudio() {
       try {
-        console.log('🎵 Setting up Tasks audio mode...');
-        // setAudioModeAsync is now handled by expo-audio or global config
-        await setIsAudioActiveAsync(true);
-        console.log('✅ Tasks audio active');
-      } catch (e) {
-        console.log('❌ Tasks audio setup error:', e);
-      }
+        await Audio.setAudioModeAsync({
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+        });
+      } catch (e) {}
     }
     setupAudio();
+    return () => { if (shuffleSoundRef.current) shuffleSoundRef.current.unloadAsync(); };
   }, []);
 
   async function playShuffleSound() {
     try {
-      console.log('🎵 Attempting to play shuffle sound...');
-      if (shufflePlayer) {
-        if (shufflePlayer.playing) {
-          await shufflePlayer.seekTo(0);
-        }
-        shufflePlayer.play();
-        console.log('🎵 Shuffle sound played!');
+      if (shuffleSoundRef.current) {
+        await shuffleSoundRef.current.replayAsync();
       } else {
-        console.log('⚠️ Shuffle player is null');
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/card-shuffle.mp3'));
+        shuffleSoundRef.current = sound;
+        await sound.playAsync();
       }
-    } catch (e) {
-      console.log('❌ Error playing shuffle sound:', e);
-    }
+    } catch (e) {}
   }
 
   const [editingTask,   setEditingTask]   = useState(null);
@@ -1582,12 +1616,15 @@ export default function TasksScreen() {
   const todayStr = new Date().toISOString().split('T')[0];
   const stats = {
     total: tasks.length,
-    today: tasks.filter(t => t.status === 'done' || t.status === 'did_my_best').length,
+    today: tasks.filter(t => {
+      const s = t.statusHistory?.[todayStr];
+      return s === 'done' || s === 'did_my_best';
+    }).length,
     pending: tasks.filter(t => t.status === 'pending' || t.status === 'active').length,
     upcoming: tasks.filter(t => t.status === 'upcoming').length,
   };
 
-  const allTags = Array.from(new Set(tasks.flatMap(t => t.tags)));
+  const allTags = Array.from(new Set(tasks.flatMap(t => (t.tags || []))));
 
   // Pipeline Filter logic
   let filtered = tasks;
@@ -1646,11 +1683,20 @@ export default function TasksScreen() {
     let subject = task;
     if (subtaskId) {
       subject = findInTree(task.subtasks || [], subtaskId);
+      if (!subject) return;
     }
-    
+
     if (!targetStatus) targetStatus = STATUSES[subject.status || 'pending'].next;
     
     if (targetStatus === 'done' || targetStatus === 'did_my_best') {
+      // Eagerly stamp statusHistory so calendar colors even if modal is dismissed without rolling
+      const todayKey = new Date().toISOString().split('T')[0];
+      setTasks(prev => prev.map(t => {
+        if (t.id === taskId) {
+          return { ...t, statusHistory: { ...(t.statusHistory || {}), [todayKey]: targetStatus } };
+        }
+        return t;
+      }));
       setShuffleTask(null);
       setCompletingTask({ ...subject, intent: targetStatus, parentTaskId: subtaskId ? taskId : null });
     } else if (targetStatus === 'missed') {
@@ -1692,21 +1738,59 @@ export default function TasksScreen() {
       if (!completingTask.parentTaskId && t.id === id) {
         let nextData = {};
         if (t.frequency) {
-          try {
-            const currentObj = t.dueDate ? new Date(t.dueDate) : new Date();
-            if (!isNaN(currentObj.valueOf())) {
-              if (t.frequency === 'Daily') currentObj.setDate(currentObj.getDate() + 1);
-              else if (t.frequency === 'Weekly') currentObj.setDate(currentObj.getDate() + 7);
-              else if (t.frequency === 'Monthly') currentObj.setMonth(currentObj.getMonth() + 1);
-              else if (t.frequency === 'Yearly') currentObj.setFullYear(currentObj.getFullYear() + 1);
-              else if (t.frequency === 'DaysAfter' && t.frequencyDays) currentObj.setDate(currentObj.getDate() + t.frequencyDays);
+          // For "days after completion" modes, always base off today
+          const useToday = t.frequency === 'DaysAfter' || t.weeklyMode === 'days_after';
+          let base;
+          if (useToday) {
+            base = new Date();
+          } else {
+            base = t.dueDate ? new Date(t.dueDate) : new Date();
+            if (isNaN(base.valueOf())) base = new Date(); // fallback if stored dueDate is invalid
+          }
 
-              const formatted = `${String(currentObj.getMonth() + 1).padStart(2, '0')}/${String(currentObj.getDate()).padStart(2, '0')}/${currentObj.getFullYear()}`;
-              nextData.nextDueDate = formatted;
+          if (t.frequency === 'Daily') {
+            base.setDate(base.getDate() + 1);
+          } else if (t.frequency === 'Weekly') {
+            if (t.weeklyMode === 'days_after') {
+              base.setDate(base.getDate() + 7);
+            } else if (t.weeklyDay != null) {
+              // Advance to next occurrence of the chosen weekday
+              const targetDay = t.weeklyDay;
+              let daysAhead = (targetDay - base.getDay() + 7) % 7;
+              if (daysAhead === 0) daysAhead = 7; // same day → next week
+              base.setDate(base.getDate() + daysAhead);
+            } else {
+              base.setDate(base.getDate() + 7);
             }
-          } catch (e) {}
+          } else if (t.frequency === 'Monthly') {
+            base.setMonth(base.getMonth() + 1);
+          } else if (t.frequency === 'Yearly') {
+            base.setFullYear(base.getFullYear() + 1);
+          } else if (t.frequency === 'DaysAfter') {
+            // base is already today; add frequencyDays (default 1 if missing)
+            base.setDate(base.getDate() + (t.frequencyDays || 1));
+          }
+
+          const formatted = `${String(base.getMonth() + 1).padStart(2, '0')}/${String(base.getDate()).padStart(2, '0')}/${base.getFullYear()}`;
+          nextData.nextDueDate = formatted;
+          nextData.dueDate = formatted;
+          nextData.status = 'upcoming';
+          nextData.gainedReward = null;
+          nextData.completedAt = null;
         }
-        const updated = { ...t, status: completingTask.intent, gainedReward: reward, completedAt: today, streak: (t.streak || 0) + 1, statusHistory: { ...(t.statusHistory || {}), [today]: completingTask.intent }, ...nextData };
+        // For recurring tasks nextData overrides status/gainedReward/completedAt; for one-off tasks use completion intent
+        const finalStatus = nextData.status || completingTask.intent;
+        const finalReward = nextData.status ? null : reward; // recurring tasks don't hold a reward
+        const finalCompletedAt = nextData.status ? null : today;
+        const updated = {
+          ...t,
+          gainedReward: finalReward,
+          completedAt: finalCompletedAt,
+          streak: (t.streak || 0) + 1,
+          statusHistory: { ...(t.statusHistory || {}), [today]: completingTask.intent },
+          ...nextData,
+          status: finalStatus,
+        };
         logTaskEvent(updated, completingTask.intent);
         return updated;
       }
@@ -1781,7 +1865,7 @@ export default function TasksScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
 
       {/* ── Main header ── */}
       <View style={styles.header}>
@@ -1987,7 +2071,7 @@ export default function TasksScreen() {
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
-          renderItem={({ item }) => <TaskRow task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={setHistoryTask} />}
+          renderItem={({ item }) => <TaskRow task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />}
           renderSectionHeader={({ section }) => (
             <SectionHeader 
               title={section.title} 
@@ -2019,7 +2103,7 @@ export default function TasksScreen() {
           onScroll={handleScroll}
           scrollEventThrottle={16}
           contentContainerStyle={[styles.cardList, Platform.OS === 'web' && { maxWidth: 650, alignSelf: 'center', width: '100%' }]}
-          renderItem={({ item }) => <TaskCard task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={setHistoryTask} />}
+          renderItem={({ item }) => <TaskCard task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />}
           ListEmptyComponent={<Text style={styles.empty}>No tasks — tap New or import.</Text>}
         />
       )}
@@ -2049,67 +2133,59 @@ export default function TasksScreen() {
       )}
 
       {/* Task Result Modal */}
-      <TaskResultModal 
-        visible={!!completingTask} 
-        task={completingTask} 
-        onClose={() => setCompletingTask(null)} 
-        onComplete={handleTaskCompleting} 
+      <TaskResultModal
+        visible={!!completingTask}
+        task={completingTask}
+        onClose={() => {
+          // Even if user dismisses without rolling, still log the event and set nextDueDate
+          if (completingTask) handleTaskCompleting(completingTask.id, null);
+        }}
+        onComplete={handleTaskCompleting}
       />
 
-      {/* History modal */}
-      {historyTask && (
-        <TaskHistoryModal
-          task={historyTask}
-          pendingRolls={historyNewCompletions}
-          onClose={() => {
-            const count = historyNewCompletions;
-            const taskRef = historyTask;
-            setHistoryTask(null);
-            setHistoryNewCompletions(0);
-            
-            if (count > 0) {
-              // Queue up reward rolls for each new completion
-              const items = Array.from({ length: count }, () => ({
-                ...taskRef,
-                intent: 'done',
-                parentTaskId: null,
-              }));
-              // Start the first one immediately, queue the rest
-              setCompletingTask(items[0]);
-              if (items.length > 1) {
-                setRewardQueue(items.slice(1));
+      {/* History modal — derive live task from tasks state so statusHistory is always fresh */}
+      {historyTask && (() => {
+        const liveHistoryTask = tasks.find(t => t.id === historyTask);
+        if (!liveHistoryTask) return null;
+        return (
+          <TaskHistoryModal
+            task={liveHistoryTask}
+            pendingRolls={historyNewCompletions}
+            onClose={() => {
+              const count = historyNewCompletions;
+              const taskRef = liveHistoryTask;
+              setHistoryTask(null);
+              setHistoryNewCompletions(0);
+              if (count > 0) {
+                const items = Array.from({ length: count }, () => ({
+                  ...taskRef,
+                  intent: 'done',
+                  parentTaskId: null,
+                }));
+                setCompletingTask(items[0]);
+                if (items.length > 1) setRewardQueue(items.slice(1));
               }
-            }
-          }}
-          onUpdateHistory={(taskId, date, status) => {
-            // Check if this is a NEW completion (wasn't already done/did_my_best)
-            const existingTask = tasks.find(t => t.id === taskId);
-            const oldStatus = existingTask?.statusHistory?.[date];
-            const wasCompleted = oldStatus === 'done' || oldStatus === 'did_my_best';
-            const isNowCompleted = status === 'done' || status === 'did_my_best';
-            
-            if (!wasCompleted && isNowCompleted) {
-              setHistoryNewCompletions(prev => prev + 1);
-            } else if (wasCompleted && !isNowCompleted) {
-              setHistoryNewCompletions(prev => Math.max(0, prev - 1));
-            }
-
-            setTasks(prev => prev.map(t => {
-              if (t.id !== taskId) return t;
-              const h = { ...(t.statusHistory || {}) };
-              if (status === null) { delete h[date]; } else { h[date] = status; }
-              return { ...t, statusHistory: h };
-            }));
-            // Refresh the modal's task reference
-            setHistoryTask(prev => {
-              if (!prev || prev.id !== taskId) return prev;
-              const h = { ...(prev.statusHistory || {}) };
-              if (status === null) { delete h[date]; } else { h[date] = status; }
-              return { ...prev, statusHistory: h };
-            });
-          }}
-        />
-      )}
+            }}
+            onUpdateHistory={(taskId, date, status) => {
+              const existingTask = tasks.find(t => t.id === taskId);
+              const oldStatus = existingTask?.statusHistory?.[date];
+              const wasCompleted = oldStatus === 'done' || oldStatus === 'did_my_best';
+              const isNowCompleted = status === 'done' || status === 'did_my_best';
+              if (!wasCompleted && isNowCompleted) {
+                setHistoryNewCompletions(prev => prev + 1);
+              } else if (wasCompleted && !isNowCompleted) {
+                setHistoryNewCompletions(prev => Math.max(0, prev - 1));
+              }
+              setTasks(prev => prev.map(t => {
+                if (t.id !== taskId) return t;
+                const h = { ...(t.statusHistory || {}) };
+                if (status === null) { delete h[date]; } else { h[date] = status; }
+                return { ...t, statusHistory: h };
+              }));
+            }}
+          />
+        );
+      })()}
 
       {showScrollTop && <ScrollToTop scrollRef={listRef} />}
     </SafeAreaView>
@@ -2123,7 +2199,7 @@ const styles = StyleSheet.create({
   screen:       { flex: 1, backgroundColor: '#fff' },
 
   // Header
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: 24, fontWeight: '700', color: '#111827' },
   headerActions:{ flexDirection: 'row', alignItems: 'center', gap: 4 },
@@ -2181,9 +2257,9 @@ const styles = StyleSheet.create({
 
   // Detail modal
   detailScreen:     { flex: 1, backgroundColor: '#fff' },
-  detailHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  detailHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: Platform.OS === 'ios' ? 8 : 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6', position: 'relative', zIndex: 10, elevation: 4, backgroundColor: '#fff' },
   detailHeaderTitle:{ fontSize: 17, fontWeight: '600', color: '#111827' },
-  detailBody:       { padding: 20, gap: 4, paddingBottom: 60 },
+  detailBody:       { padding: 20, gap: 4, paddingBottom: 120 },
   titleInput:       { fontSize: 22, fontWeight: '600', color: '#111827', paddingVertical: 8, marginBottom: 8, borderBottomWidth: 2, borderBottomColor: '#6366f1' },
   fieldLabel:       { fontSize: 12, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
   fieldInput:       { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12, fontSize: 15, color: '#111827', backgroundColor: '#f9fafb' },

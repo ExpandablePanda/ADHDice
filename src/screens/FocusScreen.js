@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
   TextInput, FlatList, Alert, ScrollView,
-  KeyboardAvoidingView, Platform, Dimensions,
+  KeyboardAvoidingView, Platform, Dimensions, Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -11,6 +11,7 @@ import { colors } from '../theme';
 import { useTheme } from '../lib/ThemeContext';
 import ScrollToTop from '../components/ScrollToTop';
 import { useFocus } from '../lib/FocusContext';
+import { useEconomy } from '../lib/EconomyContext';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -452,21 +453,117 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// FOCUS REWARD MODAL (D6 doubler)
+// ═════════════════════════════════════════════════════════════════════════════
+
+function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
+  const [step, setStep]     = useState('offer'); // offer | rolling | result
+  const [roll, setRoll]     = useState(null);
+  const spinVal              = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) { setStep('offer'); setRoll(null); }
+  }, [visible]);
+
+  function handleRoll() {
+    setStep('rolling');
+    Animated.sequence([
+      Animated.timing(spinVal, { toValue: 1, duration: 800, useNativeDriver: true }),
+    ]).start(() => {
+      const r = Math.floor(Math.random() * 6) + 1;
+      setRoll(r);
+      setStep('result');
+      spinVal.setValue(0);
+    });
+  }
+
+  const doubled = roll >= 5;
+  const totalPoints = doubled ? basePoints * 2 : basePoints;
+  const spinDeg = spinVal.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '720deg'] });
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ backgroundColor: '#fff', borderRadius: 24, padding: 28, width: '85%', alignItems: 'center', gap: 12 }}>
+          {step === 'offer' && (
+            <>
+              <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#ede9fe', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="timer" size={28} color="#6366f1" />
+              </View>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#111827' }}>Focus Reward!</Text>
+              <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+                {fmtDuration(minutes)} logged → <Text style={{ fontWeight: '700', color: '#6366f1' }}>+{basePoints} pts</Text>
+              </Text>
+              <Text style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', marginTop: -4 }}>
+                Roll a D6 — land a 5 or 6 and double it!
+              </Text>
+              <TouchableOpacity
+                style={{ backgroundColor: '#6366f1', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 14, marginTop: 4 }}
+                onPress={handleRoll}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>Roll D6</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onClaim(basePoints)}>
+                <Text style={{ color: '#9ca3af', fontSize: 13, marginTop: 4 }}>Skip — just take the {basePoints} pts</Text>
+              </TouchableOpacity>
+            </>
+          )}
+          {step === 'rolling' && (
+            <>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>Rolling…</Text>
+              <Animated.View style={{ transform: [{ rotate: spinDeg }], marginVertical: 12 }}>
+                <Ionicons name="dice-outline" size={64} color="#6366f1" />
+              </Animated.View>
+            </>
+          )}
+          {step === 'result' && (
+            <>
+              <Text style={{ fontSize: 48, fontWeight: '900', color: doubled ? '#6366f1' : '#111827' }}>{roll}</Text>
+              {doubled ? (
+                <>
+                  <Text style={{ fontSize: 20, fontWeight: '800', color: '#6366f1' }}>DOUBLED! 🎉</Text>
+                  <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+                    {basePoints} pts × 2 = <Text style={{ fontWeight: '800', color: '#6366f1' }}>+{totalPoints} pts</Text>
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>No double this time</Text>
+                  <Text style={{ fontSize: 14, color: '#6b7280' }}>You earn <Text style={{ fontWeight: '700' }}>+{basePoints} pts</Text></Text>
+                </>
+              )}
+              <TouchableOpacity
+                style={{ backgroundColor: '#6366f1', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 14, marginTop: 8 }}
+                onPress={() => onClaim(totalPoints)}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>Claim +{totalPoints} pts</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
 // MAIN FOCUS SCREEN
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function FocusScreen() {
-  const { 
-    entries, addEntry, deleteEntry, updateEntry, 
+  const {
+    entries, addEntry, deleteEntry, updateEntry,
     categories, setCategories,
     timerState, setTimerState,
   } = useFocus();
+  const { addReward } = useEconomy();
 
   const [timerSeconds, setTimerSeconds] = useState(0);
   const [editEntry, setEditEntry]       = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
   const [statsPeriod, setStatsPeriod]   = useState('today');
+  const [pendingFocusReward, setPendingFocusReward] = useState(null); // { minutes, basePoints }
   const intervalRef = useRef(null);
   const scrollRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -530,7 +627,12 @@ export default function FocusScreen() {
         note: '',
       };
       addEntry(newEntry);
-      Alert.alert('Time Logged!', `${fmtDuration(minutes)} of ${categories.find(c => c.key === timerState.category)?.label || 'Focus'} logged.`);
+      const basePoints = Math.floor(minutes * 0.5);
+      if (basePoints > 0) {
+        setPendingFocusReward({ minutes, basePoints });
+      } else {
+        Alert.alert('Time Logged!', `${fmtDuration(minutes)} of ${categories.find(c => c.key === timerState.category)?.label || 'Focus'} logged.`);
+      }
     }
 
     // Reset shared state
@@ -560,7 +662,17 @@ export default function FocusScreen() {
   }
 
   function saveEntry(entry) {
-    updateEntry(entry);
+    const isExisting = entries.some(e => e.id === entry.id);
+    if (isExisting) {
+      updateEntry(entry);
+    } else {
+      addEntry(entry);
+      // Award focus points: 0.5 pts per minute, then offer D6 doubler
+      const basePoints = Math.floor(entry.minutes * 0.5);
+      if (basePoints > 0) {
+        setPendingFocusReward({ minutes: entry.minutes, basePoints });
+      }
+    }
     setEditEntry(null);
     setShowAddModal(false);
   }
@@ -614,7 +726,7 @@ export default function FocusScreen() {
     .slice(0, 20);
 
   return (
-    <SafeAreaView style={styles.screen}>
+    <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
       <ScrollView 
         ref={scrollRef} 
         contentContainerStyle={styles.scrollContent} 
@@ -631,7 +743,7 @@ export default function FocusScreen() {
         </View>
 
         <View style={styles.timerSection}>
-              <View style={[styles.timerCircle, { borderColor: (categories.find(c => c.key === timerState.category) || categories[0])?.color || colors.primary }]}>
+              <View style={[styles.timerDisplay, { borderColor: (categories.find(c => c.key === timerState.category) || categories[0])?.color || colors.primary }]}>
                 <Text style={[styles.timerText, { color: colors.textPrimary }]}>{fmtTimer(timerSeconds)}</Text>
                 <Text style={styles.timerSubText}>
                   {(categories.find(c => c.key === timerState.category) || categories[0])?.label || 'Focusing'}
@@ -639,23 +751,23 @@ export default function FocusScreen() {
               </View>
 
               <View style={styles.timerControls}>
-                <TouchableOpacity style={styles.controlBtn} onPress={resetTimer}>
+                <TouchableOpacity style={styles.timerBtn} onPress={resetTimer}>
                   <Ionicons name="refresh-outline" size={24} color={colors.textSecondary} />
                 </TouchableOpacity>
 
                 <TouchableOpacity 
-                  style={[styles.mainControl, { backgroundColor: (categories.find(c => c.key === timerState.category) || categories[0])?.color || colors.primary }]} 
+                  style={[styles.timerStart, { backgroundColor: (categories.find(c => c.key === timerState.category) || categories[0])?.color || colors.primary }]} 
                   onPress={timerState.isRunning ? pauseTimer : startTimer}
                 >
                   <Ionicons name={timerState.isRunning ? "pause" : "play"} size={32} color="#fff" />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.controlBtn} onPress={stopAndLog}>
+                <TouchableOpacity style={styles.timerBtn} onPress={stopAndLog}>
                   <Ionicons name="stop-outline" size={24} color={colors.textSecondary} />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catPicker}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catPicker} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, alignItems: 'center' }}>
                 {categories.map(cat => (
                   <TouchableOpacity 
                     key={cat.key} 
@@ -804,6 +916,17 @@ export default function FocusScreen() {
         onClose={() => setShowCatModal(false)}
       />
       {showScrollTop && <ScrollToTop scrollRef={scrollRef} />}
+
+      <FocusRewardModal
+        visible={!!pendingFocusReward}
+        minutes={pendingFocusReward?.minutes || 0}
+        basePoints={pendingFocusReward?.basePoints || 0}
+        onClose={() => setPendingFocusReward(null)}
+        onClaim={(pts) => {
+          addReward(pts, 0);
+          setPendingFocusReward(null);
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -819,7 +942,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 60,
   },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: 16, paddingBottom: 8, marginBottom: 12 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8, marginBottom: 12 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   headerTitle: { fontSize: 24, fontWeight: '800', color: '#111827' },
 
@@ -893,6 +1016,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 12,
     paddingHorizontal: 20,
+    marginBottom: 20,
+  },
+  catPicker: {
+    marginTop: 4,
   },
   timerBtn: {
     flexDirection: 'row',

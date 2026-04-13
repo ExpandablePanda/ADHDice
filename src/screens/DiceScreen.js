@@ -647,8 +647,8 @@ export default function DiceScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <ScrollView 
+    <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
+      <ScrollView
         ref={scrollRef}
         contentContainerStyle={[styles.scrollContent, Platform.OS === 'web' && { maxWidth: 600, alignSelf: 'center', width: '100%' }]} 
         showsVerticalScrollIndicator={false}
@@ -706,8 +706,10 @@ export default function DiceScreen() {
               </View>
             </TouchableOpacity>
           </Animated.View>
+        </View>
 
-          {/* Tap hint */}
+        {/* Tap hint — between dice and button for equal spacing */}
+        <View style={styles.tapHintRow}>
           {!rolling && !result && (
             <Text style={styles.tapHint}>Tap the dice to roll!</Text>
           )}
@@ -935,7 +937,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    paddingTop: Platform.OS === 'ios' ? 12 : 20,
     paddingBottom: 8,
   },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
@@ -992,8 +994,8 @@ const styles = StyleSheet.create({
   gameArea: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 40,
-    minHeight: SCREEN_W * 0.7,
+    paddingTop: 24,
+    paddingBottom: 8,
   },
   ambientGlow: {
     position: 'absolute',
@@ -1016,10 +1018,15 @@ const styles = StyleSheet.create({
     textShadowOffset: { width: 0, height: 2 },
     textShadowRadius: 4,
   },
+  tapHintRow: {
+    alignItems: 'center',
+    paddingVertical: 16,
+    minHeight: 52,
+    justifyContent: 'center',
+  },
   tapHint: {
     color: colors.textMuted,
     fontSize: 14,
-    marginTop: 20,
   },
 
   // Result card

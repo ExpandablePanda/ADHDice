@@ -96,7 +96,10 @@ export default function SettingsScreen() {
         nextDueDate: '',
         dueTime: '',
         frequency: null,
+        frequencyDays: null,
+        estimatedMinutes: null,
         isPriority: false,
+        statusHistory: {},
       };
     });
 
@@ -158,7 +161,7 @@ export default function SettingsScreen() {
     rowBody: { flex: 1 },
     rowTitle: { fontSize: 16, fontWeight: '600', color: colors.textPrimary, marginBottom: 2 },
     rowDesc: { fontSize: 13, color: colors.textSecondary },
-    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 16, marginBottom: 8 },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingBottom: 16, marginBottom: 8, paddingTop: Platform.OS === 'ios' ? 12 : 20 },
     headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10 },
     headerTitle: { fontSize: 24, fontWeight: '800', color: colors.textPrimary },
   });

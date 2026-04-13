@@ -1,5 +1,6 @@
 import { NavigationContainer } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -121,9 +122,11 @@ function RootApp() {
 
 export default function App() {
   return (
-    <ProfileProvider>
-      <RootApp />
-    </ProfileProvider>
+    <SafeAreaProvider>
+      <ProfileProvider>
+        <RootApp />
+      </ProfileProvider>
+    </SafeAreaProvider>
   );
 }
 
