@@ -26,6 +26,12 @@ export default function SettingsScreen() {
   };
 
   const handleResetEconomy = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm("Are you sure you want to reset your Level, XP, and Points back to 0?")) {
+        resetEconomy();
+      }
+      return;
+    }
     Alert.alert(
       "Reset RPG Stats",
       "Are you sure you want to reset your Level, XP, and Points back to 0? This cannot be undone.",
@@ -37,6 +43,12 @@ export default function SettingsScreen() {
   };
 
   const handleNukeTasks = () => {
+    if (Platform.OS === 'web') {
+      if (window.confirm("Are you sure you want to wipe all pending, active, and completed tasks permanently?")) {
+        setTasks([]);
+      }
+      return;
+    }
     Alert.alert(
       "Clear All Tasks",
       "Are you sure you want to wipe all pending, active, and completed tasks permanently?",
