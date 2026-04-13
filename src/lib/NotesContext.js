@@ -40,7 +40,7 @@ export function NotesProvider({ children }) {
     loadData();
   }, [storagePrefix, user]);
 
-  // NEW: 1b. Real-time Subscription
+  // 1b. Real-time Subscription
   useEffect(() => {
     if (!user) return;
 
@@ -51,25 +51,32 @@ export function NotesProvider({ children }) {
         { event: '*', schema: 'public', table: 'user_notes', filter: `user_id=eq.${user.id}` },
         (payload) => {
           if (payload.new && payload.new.data) {
-            setNotes(payload.new.data);
+            const cloudStr = JSON.stringify(payload.new.data);
+            AsyncStorage.getItem(`${storagePrefix}notes`).then(localStr => {
+              if (cloudStr !== localStr) setNotes(payload.new.data);
+            });
           }
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, storagePrefix]);
 
   // 2. Save Data (Local + Cloud)
   useEffect(() => {
     if (!loaded || !user) return;
 
     const saveData = async () => {
+      const notesStr = JSON.stringify(notes);
       // Save local
-      await AsyncStorage.setItem(`${storagePrefix}notes`, JSON.stringify(notes));
+      await AsyncStorage.setItem(`${storagePrefix}notes`, notesStr);
 
       // Save to Cloud
       try {
+        const { data: remote } = await supabase.from('user_notes').select('data').eq('user_id', user.id).single();
+        if (remote && JSON.stringify(remote.data) === notesStr) return;
+
         await supabase
           .from('user_notes')
           .upsert({ user_id: user.id, data: notes, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
@@ -78,7 +85,7 @@ export function NotesProvider({ children }) {
       }
     };
 
-    const timeoutId = setTimeout(saveData, 2000);
+    const timeoutId = setTimeout(saveData, 1000);
     return () => clearTimeout(timeoutId);
   }, [notes, loaded, user, storagePrefix]);
 

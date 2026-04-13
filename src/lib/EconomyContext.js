@@ -50,7 +50,7 @@ export function EconomyProvider({ children }) {
     loadData();
   }, [storagePrefix, user]);
 
-  // NEW: 1b. Real-time Subscription
+  // 1b. Real-time Subscription
   useEffect(() => {
     if (!user) return;
 
@@ -61,25 +61,32 @@ export function EconomyProvider({ children }) {
         { event: '*', schema: 'public', table: 'user_economy', filter: `user_id=eq.${user.id}` },
         (payload) => {
           if (payload.new && payload.new.data) {
-            setEconomy(payload.new.data);
+            const cloudStr = JSON.stringify(payload.new.data);
+            AsyncStorage.getItem(`${storagePrefix}economy`).then(localStr => {
+              if (cloudStr !== localStr) setEconomy(payload.new.data);
+            });
           }
         }
       )
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [user]);
+  }, [user, storagePrefix]);
 
   // 2. Save Data (Local + Cloud)
   useEffect(() => {
     if (!loaded || !user) return;
 
     const saveData = async () => {
+      const econStr = JSON.stringify(economy);
       // Save local
-      await AsyncStorage.setItem(`${storagePrefix}economy`, JSON.stringify(economy));
+      await AsyncStorage.setItem(`${storagePrefix}economy`, econStr);
 
       // Save to Cloud
       try {
+        const { data: remote } = await supabase.from('user_economy').select('data').eq('user_id', user.id).single();
+        if (remote && JSON.stringify(remote.data) === econStr) return;
+
         await supabase
           .from('user_economy')
           .upsert({ user_id: user.id, data: economy, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
@@ -88,7 +95,7 @@ export function EconomyProvider({ children }) {
       }
     };
 
-    const timeoutId = setTimeout(saveData, 2000);
+    const timeoutId = setTimeout(saveData, 1000);
     return () => clearTimeout(timeoutId);
   }, [economy, loaded, user, storagePrefix]);
 

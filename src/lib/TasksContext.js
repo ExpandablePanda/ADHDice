@@ -59,11 +59,10 @@ export function TasksProvider({ children }) {
     loadData();
   }, [storagePrefix, user]);
 
-  // NEW: 1b. Real-time Subscription
+  // 1b. Real-time Subscription
   useEffect(() => {
     if (!user) return;
 
-    // Listen for changes specifically to this user's data
     const channel = supabase
       .channel(`rt:user_tasks:${user.id}`)
       .on(
@@ -76,9 +75,14 @@ export function TasksProvider({ children }) {
         },
         (payload) => {
           if (payload.new && payload.new.data) {
-            // Only update if it's different from our current state
-            // (Avoiding loops when we are the ones who saved)
-            setTasks(payload.new.data);
+            // Check if the new data is actually different from our current state
+            // to avoid unnecessary re-renders or "bounce-back" saves
+            const cloudDataStr = JSON.stringify(payload.new.data);
+            AsyncStorage.getItem(`${storagePrefix}tasks`).then(localDataStr => {
+              if (cloudDataStr !== localDataStr) {
+                setTasks(payload.new.data);
+              }
+            });
           }
         }
       )
@@ -87,20 +91,34 @@ export function TasksProvider({ children }) {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user]);
+  }, [user, storagePrefix]);
 
   // 2. Save Data (Local + Cloud)
   useEffect(() => {
     if (!loaded || !user) return;
 
     const saveData = async () => {
-      // Save local
-      await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(tasks));
-      await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(taskHistory));
+      const tasksStr = JSON.stringify(tasks);
+      const historyStr = JSON.stringify(taskHistory);
 
-      // Save to Cloud
-      setIsSyncing(true);
+      // Save local
+      await AsyncStorage.setItem(`${storagePrefix}tasks`, tasksStr);
+      await AsyncStorage.setItem(`${storagePrefix}task_history`, historyStr);
+
+      // Check if we actually need to update the cloud 
+      // (prevents loops if the change came from the cloud)
       try {
+        const { data: remote } = await supabase
+          .from('user_tasks')
+          .select('data')
+          .eq('user_id', user.id)
+          .single();
+        
+        if (remote && JSON.stringify(remote.data) === tasksStr) {
+          return; // Already in sync
+        }
+
+        setIsSyncing(true);
         await supabase
           .from('user_tasks')
           .upsert({ 
@@ -115,7 +133,7 @@ export function TasksProvider({ children }) {
       }
     };
 
-    const timeoutId = setTimeout(saveData, 2000); // 2s debounce to allow real-time to settle
+    const timeoutId = setTimeout(saveData, 1000); // Reduced to 1s for snappier feel
     return () => clearTimeout(timeoutId);
   }, [tasks, taskHistory, loaded, user, storagePrefix]);
 
