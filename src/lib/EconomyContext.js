@@ -32,7 +32,7 @@ export function EconomyProvider({ children }) {
       // Cloud sync
       if (user) {
         try {
-          const { data, error } = await supabase
+          const { data } = await supabase
             .from('user_economy')
             .select('data')
             .eq('user_id', user.id)
@@ -49,6 +49,26 @@ export function EconomyProvider({ children }) {
     }
     loadData();
   }, [storagePrefix, user]);
+
+  // NEW: 1b. Real-time Subscription
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`rt:user_economy:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_economy', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.new && payload.new.data) {
+            setEconomy(payload.new.data);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   // 2. Save Data (Local + Cloud)
   useEffect(() => {
@@ -68,7 +88,7 @@ export function EconomyProvider({ children }) {
       }
     };
 
-    const timeoutId = setTimeout(saveData, 1000);
+    const timeoutId = setTimeout(saveData, 2000);
     return () => clearTimeout(timeoutId);
   }, [economy, loaded, user, storagePrefix]);
 

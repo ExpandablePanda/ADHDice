@@ -42,3 +42,6 @@ yarn-error.*
 
 # cache
 .npm_cache/
+
+# Local Netlify folder
+.netlify

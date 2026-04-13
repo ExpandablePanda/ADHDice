@@ -22,7 +22,7 @@ export function NotesProvider({ children }) {
       // Cloud sync
       if (user) {
         try {
-          const { data, error } = await supabase
+          const { data } = await supabase
             .from('user_notes')
             .select('data')
             .eq('user_id', user.id)
@@ -39,6 +39,26 @@ export function NotesProvider({ children }) {
     }
     loadData();
   }, [storagePrefix, user]);
+
+  // NEW: 1b. Real-time Subscription
+  useEffect(() => {
+    if (!user) return;
+
+    const channel = supabase
+      .channel(`rt:user_notes:${user.id}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'user_notes', filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.new && payload.new.data) {
+            setNotes(payload.new.data);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [user]);
 
   // 2. Save Data (Local + Cloud)
   useEffect(() => {
@@ -58,7 +78,7 @@ export function NotesProvider({ children }) {
       }
     };
 
-    const timeoutId = setTimeout(saveData, 1000);
+    const timeoutId = setTimeout(saveData, 2000);
     return () => clearTimeout(timeoutId);
   }, [notes, loaded, user, storagePrefix]);
 

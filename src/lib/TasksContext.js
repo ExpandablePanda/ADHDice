@@ -40,7 +40,7 @@ export function TasksProvider({ children }) {
       // Cloud sync
       if (user) {
         try {
-          const { data, error } = await supabase
+          const { data } = await supabase
             .from('user_tasks')
             .select('data')
             .eq('user_id', user.id)
@@ -58,6 +58,36 @@ export function TasksProvider({ children }) {
     }
     loadData();
   }, [storagePrefix, user]);
+
+  // NEW: 1b. Real-time Subscription
+  useEffect(() => {
+    if (!user) return;
+
+    // Listen for changes specifically to this user's data
+    const channel = supabase
+      .channel(`rt:user_tasks:${user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'user_tasks',
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          if (payload.new && payload.new.data) {
+            // Only update if it's different from our current state
+            // (Avoiding loops when we are the ones who saved)
+            setTasks(payload.new.data);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user]);
 
   // 2. Save Data (Local + Cloud)
   useEffect(() => {
@@ -85,7 +115,7 @@ export function TasksProvider({ children }) {
       }
     };
 
-    const timeoutId = setTimeout(saveData, 1000);
+    const timeoutId = setTimeout(saveData, 2000); // 2s debounce to allow real-time to settle
     return () => clearTimeout(timeoutId);
   }, [tasks, taskHistory, loaded, user, storagePrefix]);
 
