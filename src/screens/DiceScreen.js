@@ -11,6 +11,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
+import { useProfile } from '../lib/ProfileContext';
+import { supabase } from '../lib/supabase';
 import ScrollToTop from '../components/ScrollToTop';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -197,7 +199,7 @@ function PrizeManagerModal({ visible, pools, onSave, onClose }) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.managerScreen}>
+      <SafeAreaView style={styles.managerScreen} edges={['top', 'bottom', 'left', 'right']}>
         {/* Header */}
         <View style={styles.managerHeader}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
@@ -303,6 +305,7 @@ function PrizeManagerModal({ visible, pools, onSave, onClose }) {
 
 export default function DiceScreen() {
   const { economy, spendPoints, addFreeRoll } = useEconomy();
+  const { user, storagePrefix } = useProfile();
 
   const [pools, setPools]           = useState(DEFAULT_POOLS);
   const [dailyBoard, setDailyBoard] = useState(null); // the generated faceMap
@@ -326,10 +329,13 @@ export default function DiceScreen() {
   const [loaded, setLoaded]         = useState(false);
 
   useEffect(() => {
-    AsyncStorage.getItem('@ADHD_dice_data').then(stored => {
+    async function loadDice() {
+      const localKey = `${storagePrefix}dice_data`;
       let currentPools = DEFAULT_POOLS;
       let boardData = null;
 
+      // Load from local storage (try new prefixed key, fall back to legacy key)
+      const stored = await AsyncStorage.getItem(localKey) || await AsyncStorage.getItem('@ADHD_dice_data');
       if (stored) {
         try {
           const data = JSON.parse(stored);
@@ -342,23 +348,44 @@ export default function DiceScreen() {
         } catch (e) { console.error('Failed to parse dice data', e); }
       }
 
-      setPools(currentPools);
+      // Cloud is source of truth
+      if (user) {
+        try {
+          const { data: row } = await supabase.from('user_dice').select('data').eq('user_id', user.id).single();
+          if (row?.data) {
+            const cloud = row.data;
+            if (cloud.pools) currentPools = cloud.pools;
+            if (cloud.history) setHistory(cloud.history);
+            if (cloud.rewardPool) setRewardPool(cloud.rewardPool);
+            if (cloud.dailyBoard) boardData = cloud.dailyBoard;
+            if (cloud.multiplier) setMultiplier(cloud.multiplier);
+            if (cloud.bank5IfOver17) setBank5IfOver17(cloud.bank5IfOver17);
+          }
+        } catch (e) { console.log('Dice cloud load skipped', e); }
+      }
 
+      setPools(currentPools);
       const today = new Date().toDateString();
       if (!boardData || boardData.date !== today) {
         boardData = { date: today, map: generateDailyPool(currentPools) };
       }
       setDailyBoard(boardData);
       setLoaded(true);
-    });
-  }, []);
+    }
+    loadDice();
+  }, [storagePrefix, user]);
 
   useEffect(() => {
-    if (loaded && dailyBoard) {
-      const data = { pools, history, rewardPool, dailyBoard, multiplier, bank5IfOver17 };
-      AsyncStorage.setItem('@ADHD_dice_data', JSON.stringify(data)).catch(e => console.error('Failed to save dice data', e));
+    if (!loaded || !dailyBoard) return;
+    const localKey = `${storagePrefix}dice_data`;
+    const data = { pools, history, rewardPool, dailyBoard, multiplier, bank5IfOver17 };
+    AsyncStorage.setItem(localKey, JSON.stringify(data)).catch(e => console.error('Failed to save dice data', e));
+    if (user) {
+      supabase.from('user_dice')
+        .upsert({ user_id: user.id, data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+        .then(({ error }) => { if (error) console.error('Dice cloud save failed', error); });
     }
-  }, [pools, history, rewardPool, dailyBoard, multiplier, bank5IfOver17, loaded]);
+  }, [pools, history, rewardPool, dailyBoard, multiplier, bank5IfOver17, loaded, storagePrefix, user]);
 
   // Animations
   const spin     = useRef(new Animated.Value(0)).current;

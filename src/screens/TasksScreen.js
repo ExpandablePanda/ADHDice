@@ -2085,6 +2085,7 @@ export default function TasksScreen() {
           onScroll={handleScroll}
           scrollEventThrottle={16}
           contentContainerStyle={styles.list}
+          scrollEnabled={Platform.OS !== 'web'}
           ListEmptyComponent={<Text style={styles.empty}>No tasks — tap New or import.</Text>}
         />
       )}
@@ -2102,7 +2103,8 @@ export default function TasksScreen() {
           columnWrapperStyle={styles.cardRow}
           onScroll={handleScroll}
           scrollEventThrottle={16}
-          contentContainerStyle={[styles.cardList, Platform.OS === 'web' && { maxWidth: 650, alignSelf: 'center', width: '100%' }]}
+          contentContainerStyle={styles.cardList}
+          scrollEnabled={Platform.OS !== 'web'}
           renderItem={({ item }) => <TaskCard task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />}
           ListEmptyComponent={<Text style={styles.empty}>No tasks — tap New or import.</Text>}
         />
@@ -2196,7 +2198,7 @@ export default function TasksScreen() {
 // STYLES
 // ═════════════════════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
-  screen:       { flex: 1, backgroundColor: '#fff' },
+  screen:       { flex: 1, backgroundColor: '#fff', ...(Platform.OS === 'web' && { overflow: 'auto' }) },
 
   // Header
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8 },

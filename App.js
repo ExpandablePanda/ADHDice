@@ -57,12 +57,17 @@ function RPGHeaderRight() {
   );
 }
 
+const APP_VERSION = 'V.01.02';
+
 function LogoHeaderLeft() {
   return (
-    <Image
-      source={require('./assets/logo.png')}
-      style={{ height: 64, width: 280, marginLeft: -80, marginTop: -10, backgroundColor: 'transparent', resizeMode: 'contain' }}
-    />
+    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+      <Image
+        source={require('./assets/logo.png')}
+        style={{ height: 64, width: 280, marginLeft: -80, marginTop: -10, backgroundColor: 'transparent', resizeMode: 'contain' }}
+      />
+      <Text style={{ fontSize: 10, fontWeight: '700', color: '#9ca3af', marginLeft: -24, marginTop: 4 }}>{APP_VERSION}</Text>
+    </View>
   );
 }
 
@@ -89,7 +94,7 @@ function MainApp() {
         })}
       >
         {tabs.map(t => (
-          <Tab.Screen key={t.name} name={t.name} component={t.component} />
+          <Tab.Screen key={t.name} name={t.name} component={t.component} options={{ unmountOnBlur: false }} />
         ))}
       </Tab.Navigator>
     </NavigationContainer>
