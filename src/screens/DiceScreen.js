@@ -13,6 +13,7 @@ import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useProfile } from '../lib/ProfileContext';
 import { supabase } from '../lib/supabase';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollToTop from '../components/ScrollToTop';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -135,6 +136,7 @@ function D20Shape({ size, color, glowColor }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 function PrizeManagerModal({ visible, pools, onSave, onClose }) {
+  const insets = useSafeAreaInsets();
   const [draft, setDraft] = useState({ master: [], small: [], big: [] });
   const [activeTab, setActiveTab] = useState('small'); // 'master', 'small', 'big'
   const [newPrize, setNewPrize] = useState('');
@@ -199,7 +201,7 @@ function PrizeManagerModal({ visible, pools, onSave, onClose }) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.managerScreen} edges={['top', 'bottom', 'left', 'right']}>
+      <View style={[styles.managerScreen, { paddingTop: insets.top }]}>
         {/* Header */}
         <View style={styles.managerHeader}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
@@ -294,7 +296,7 @@ function PrizeManagerModal({ visible, pools, onSave, onClose }) {
             </View>
           ))}
         </ScrollView>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
