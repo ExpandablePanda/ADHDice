@@ -109,12 +109,13 @@ export function NotesProvider({ children }) {
     };
 
     const timeoutId = setTimeout(saveData, 1500);
+    // pagehide is BFCache-compatible (beforeunload disables BFCache in Safari)
     const handleUnload = () => saveData();
-    if (Platform.OS === 'web') window.addEventListener('beforeunload', handleUnload);
+    if (Platform.OS === 'web') window.addEventListener('pagehide', handleUnload);
 
     return () => {
       clearTimeout(timeoutId);
-      if (Platform.OS === 'web') window.removeEventListener('beforeunload', handleUnload);
+      if (Platform.OS === 'web') window.removeEventListener('pagehide', handleUnload);
     };
   }, [notes, loaded, user, storagePrefix]);
 

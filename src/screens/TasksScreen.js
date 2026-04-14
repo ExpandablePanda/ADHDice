@@ -9,7 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
-import { useTasks, getLocalDateKey, calculateTaskStreak } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey, calculateTaskStreak, calculateTaskMissedStreak } from '../lib/TasksContext';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -56,12 +56,50 @@ let nextSubtaskId = 30;
 const newSubtask  = title => ({ id: String(nextSubtaskId++), title, status: 'pending', subtasks: [] });
 const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', nextDueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
 
+// ── Frequency / next-due-date helper ─────────────────────────────────────────
+function calcNextDueDate(task) {
+  if (!task.frequency) return null;
+  const useToday = task.frequency === 'DaysAfter' || task.weeklyMode === 'days_after';
+  let base;
+  if (useToday) {
+    base = new Date();
+  } else {
+    base = task.dueDate ? new Date(task.dueDate) : new Date();
+    if (isNaN(base.valueOf())) base = new Date();
+  }
+  if (task.frequency === 'Daily') {
+    base.setDate(base.getDate() + 1);
+  } else if (task.frequency === 'Weekly') {
+    if (task.weeklyMode === 'days_after') {
+      base.setDate(base.getDate() + 7);
+    } else if (task.weeklyDay != null) {
+      const targetDay = task.weeklyDay;
+      let daysAhead = (targetDay - base.getDay() + 7) % 7;
+      if (daysAhead === 0) daysAhead = 7;
+      base.setDate(base.getDate() + daysAhead);
+    } else {
+      base.setDate(base.getDate() + 7);
+    }
+  } else if (task.frequency === 'Monthly') {
+    base.setMonth(base.getMonth() + 1);
+  } else if (task.frequency === 'Yearly') {
+    base.setFullYear(base.getFullYear() + 1);
+  } else if (task.frequency === 'DaysAfter') {
+    base.setDate(base.getDate() + (task.frequencyDays || 1));
+  }
+  return `${String(base.getMonth() + 1).padStart(2, '0')}/${String(base.getDate()).padStart(2, '0')}/${base.getFullYear()}`;
+}
+
 // ── Recursive subtask helpers ─────────────────────────────────────────────────
 function mapSubtasks(subtasks, fn) {
   return subtasks.map(s => fn({ ...s, subtasks: mapSubtasks(s.subtasks || [], fn) }));
 }
 function toggleById(subtasks, id) {
-  return mapSubtasks(subtasks, s => s.id === id ? { ...s, done: !s.done } : s);
+  return mapSubtasks(subtasks, s => {
+    if (s.id !== id) return s;
+    const nowDone = !s.done;
+    return { ...s, done: nowDone, status: nowDone ? 'done' : 'pending' };
+  });
 }
 function deleteById(subtasks, id) {
   return subtasks
@@ -85,13 +123,15 @@ function cycleStatusInTree(subtasks, id) {
   return mapSubtasks(subtasks, s => {
     if (s.id === id) {
       const nextKey = STATUSES[s.status || 'pending'].next;
-      return { ...s, status: nextKey };
+      return { ...s, status: nextKey, done: nextKey === 'done' || nextKey === 'did_my_best' };
     }
     return s;
   });
 }
 function updateStatusInTree(subtasks, id, status) {
-  return mapSubtasks(subtasks || [], s => s.id === id ? { ...s, status } : s);
+  return mapSubtasks(subtasks || [], s =>
+    s.id === id ? { ...s, status, done: status === 'done' || status === 'did_my_best' } : s
+  );
 }
 
 function findInTree(subtasks, id) {
@@ -191,7 +231,7 @@ function groupByStatus(tasks) {
 // TASK HISTORY MODAL
 // ═════════════════════════════════════════════════════════════════════════════
 
-function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) {
+function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pendingRolls = 0 }) {
   const history = task.statusHistory || {};
   const [selectedDay, setSelectedDay] = useState(null);
 
@@ -399,18 +439,32 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
               {Object.entries(history)
                 .sort(([a], [b]) => b.localeCompare(a))
                 .slice(0, 10)
-                .map(([date, status]) => (
-                  <View key={date} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
-                    <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: STATUSES[status]?.color || '#e5e7eb' }} />
-                    <Text style={{ fontSize: 14, color: '#111827', flex: 1 }}>
-                      {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-                    </Text>
-                    <Text style={{ fontSize: 13, color: STATUSES[status]?.color || '#6b7280', fontWeight: '600', marginRight: 4 }}>{STATUSES[status]?.label || status}</Text>
-                    <TouchableOpacity onPress={() => onUpdateHistory(task.id, date, null)} style={{ padding: 4 }}>
-                      <Ionicons name="trash-outline" size={16} color="#d1d5db" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                .map(([date, status]) => {
+                  // Find the most recent taskHistory event for this task on this date
+                  const event = taskHistory.find(e => {
+                    if (e.taskId !== task.id) return false;
+                    const eDate = getLocalDateKey(new Date(e.timestamp));
+                    return eDate === date && e.status === status;
+                  });
+                  const timeStr = event
+                    ? new Date(event.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                    : null;
+                  return (
+                    <View key={date} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: STATUSES[status]?.color || '#e5e7eb', flexShrink: 0 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 14, color: '#111827' }}>
+                          {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </Text>
+                        {timeStr && <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '500', marginTop: 1 }}>{timeStr}</Text>}
+                      </View>
+                      <Text style={{ fontSize: 13, color: STATUSES[status]?.color || '#6b7280', fontWeight: '600', marginRight: 4 }}>{STATUSES[status]?.label || status}</Text>
+                      <TouchableOpacity onPress={() => onUpdateHistory(task.id, date, null)} style={{ padding: 4 }}>
+                        <Ionicons name="trash-outline" size={16} color="#d1d5db" />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
             </View>
           )}
         </ScrollView>
@@ -507,6 +561,7 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
             {(task.dueDate || task.dueTime) ? <View style={styles.metaChip}><Ionicons name="calendar-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{task.dueDate} {task.dueTime}</Text></View> : null}
             {total > 0 && <View style={styles.metaChip}><Ionicons name="checkbox-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{done}/{total}</Text></View>}
             {(task.streak && task.streak > 0) ? <View style={[styles.metaChip, { backgroundColor: '#fee2e2' }]}><Ionicons name="flame" size={10} color="#ef4444" /><Text style={[styles.metaChipText, { color: '#ef4444' }]}>{task.streak}</Text></View> : null}
+            {(() => { const ms = calculateTaskMissedStreak(task.statusHistory); return ms > 0 ? <View style={[styles.metaChip, { backgroundColor: '#1f2937' }]}><Text style={[styles.metaChipText, { color: '#f9fafb' }]}>💀 {ms}</Text></View> : null; })()}
             {(task.tags || []).map((tag, i) => <View key={i} style={[styles.metaChip, { backgroundColor: '#ede9fe' }]}><Text style={[styles.metaChipText, { color: '#6366f1' }]}>{tag}</Text></View>)}
           </View>
         </View>
@@ -515,25 +570,29 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
 
       {expanded && hasSubtasks && (
         <View style={styles.rowSubtasks}>
-          {task.subtasks.map(s => {
-            const isStaged = stagedSub?.id === s.id;
-            const currentSubStatusKey = isStaged ? stagedSub.status : (s.status || 'pending');
-            const subCfg = STATUSES[currentSubStatusKey] || STATUSES.pending;
-            
-            return (
-              <View key={s.id} style={styles.rowSubtaskItem}>
-                <TouchableOpacity onPress={(e) => { e.stopPropagation(); setStagedSub({ id: s.id, status: subCfg.next }); }} hitSlop={6}>
-                  <View style={[styles.subDot, { backgroundColor: subCfg.color }]} />
-                </TouchableOpacity>
-                {isStaged && (
-                  <TouchableOpacity onPress={(e) => { e.stopPropagation(); onConfirmStatus(task.id, stagedSub.status, s.id); setStagedSub(null); }} hitSlop={6}>
-                    <Ionicons name="checkmark-circle" size={18} color="#10b981" />
-                  </TouchableOpacity>
-                )}
-                <Text style={[styles.rowSubtaskText, (s.status === 'done' || s.status === 'did_my_best') && styles.strikeDone]}>{s.title}</Text>
-              </View>
-            );
-          })}
+          {(function renderSubs(subs, depth) {
+            return subs.map(s => {
+              const isStaged = stagedSub?.id === s.id;
+              const currentSubStatusKey = isStaged ? stagedSub.status : (s.status || 'pending');
+              const subCfg = STATUSES[currentSubStatusKey] || STATUSES.pending;
+              return (
+                <View key={s.id}>
+                  <View style={[styles.rowSubtaskItem, depth > 0 && { marginLeft: depth * 14 }]}>
+                    <TouchableOpacity onPress={(e) => { e.stopPropagation(); setStagedSub({ id: s.id, status: subCfg.next }); }} hitSlop={6}>
+                      <View style={[styles.subDot, { backgroundColor: subCfg.color }]} />
+                    </TouchableOpacity>
+                    {isStaged && (
+                      <TouchableOpacity onPress={(e) => { e.stopPropagation(); onConfirmStatus(task.id, stagedSub.status, s.id); setStagedSub(null); }} hitSlop={6}>
+                        <Ionicons name="checkmark-circle" size={18} color="#10b981" />
+                      </TouchableOpacity>
+                    )}
+                    <Text style={[styles.rowSubtaskText, (s.status === 'done' || s.status === 'did_my_best') && styles.strikeDone]}>{s.title}</Text>
+                  </View>
+                  {(s.subtasks || []).length > 0 && renderSubs(s.subtasks, depth + 1)}
+                </View>
+              );
+            });
+          })(task.subtasks, 0)}
         </View>
       )}
     </View>
@@ -687,6 +746,7 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory, isFlipped, onFlipC
             <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '800' }]}>{task.streak}</Text>
           </View>
         ) : null}
+        {(() => { const ms = calculateTaskMissedStreak(task.statusHistory); return ms > 0 ? <View style={[styles.cardChip, { backgroundColor: 'rgba(0,0,0,0.4)' }]}><Text style={[styles.cardChipText, { color: '#f9fafb', fontWeight: '800' }]}>💀 {ms}</Text></View> : null; })()}
         {task.tags.slice(0, 1).map(tag => (
           <View key={tag} style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
             <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{tag}</Text>
@@ -715,17 +775,18 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
     setShowAdd(false);
   }
 
+  const isChecked = subtask.done || subtask.status === 'done' || subtask.status === 'did_my_best';
   return (
     <View style={{ marginLeft: depth * 18 }}>
       <View style={styles.subtaskRow}>
         <TouchableOpacity onPress={() => onToggle(subtask.id)} style={styles.subtaskCheck}>
           <Ionicons
-            name={subtask.done ? 'checkbox' : 'square-outline'}
+            name={isChecked ? 'checkbox' : 'square-outline'}
             size={19}
-            color={subtask.done ? '#6366f1' : '#9ca3af'}
+            color={isChecked ? '#6366f1' : '#9ca3af'}
           />
         </TouchableOpacity>
-        <Text style={[styles.subtaskText, subtask.done && styles.subtaskDone]}>{subtask.title}</Text>
+        <Text style={[styles.subtaskText, isChecked && styles.subtaskDone]}>{subtask.title}</Text>
         {depth < MAX_DEPTH && (
           <TouchableOpacity onPress={() => setShowAdd(s => !s)} style={styles.subtaskAction}>
             <Ionicons name="add-circle-outline" size={16} color="#9ca3af" />
@@ -780,6 +841,8 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
 
 function TaskDetailModal({ task, onSave, onDelete, onClose }) {
   const { top } = useSafeAreaInsets();
+  const { tasks: allTasks } = useTasks();
+  const existingTags = Array.from(new Set(allTasks.flatMap(t => t.tags || []))).filter(Boolean);
   const is1stStep = task.is1stStepTrigger;
   const initialState = { 
     ...task, 
@@ -793,12 +856,42 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
   const [tagInput, setTagInput] = useState('');
   const [calOpenFor, setCalOpenFor] = useState(null); // 'dueDate' | 'nextDueDate' | null
   const [timeOpen, setTimeOpen] = useState(false);
+  const [pendingSubRolls, setPendingSubRolls] = useState(0);
+  const [showExistingTagMenu, setShowExistingTagMenu] = useState(false);
+  const [showTitleSuggestions, setShowTitleSuggestions] = useState(false);
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
   const isNew = !task.id;
+  const titleSuggestions = React.useMemo(() => {
+    const q = draft.title.trim().toLowerCase();
+    if (q.length < 1) return [];
+    const activeStatuses = ['first_step', 'active', 'pending', 'missed', 'upcoming'];
+    return allTasks
+      .filter(t => t.id !== task.id && activeStatuses.includes(t.status) && t.title.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [draft.title, allTasks, task.id]);
+
+  const tagSuggestions = React.useMemo(() => {
+    const q = tagInput.trim().toLowerCase();
+    if (q.length < 1) return [];
+    return existingTags
+      .filter(t => !draft.tags.includes(t) && t.toLowerCase().includes(q))
+      .slice(0, 6);
+  }, [tagInput, existingTags, draft.tags]);
 
   function field(key, val) { setDraft(d => ({ ...d, [key]: val })); }
 
   // Top-level subtask actions (recursive helpers do the rest)
-  function toggleSub(id)           { setDraft(d => ({ ...d, subtasks: toggleById(d.subtasks, id) })); }
+  function toggleSub(id) {
+    setDraft(d => {
+      const existing = findInTree(d.subtasks, id);
+      const currentlyChecked = existing && (existing.done || existing.status === 'done' || existing.status === 'did_my_best');
+      if (!currentlyChecked) {
+        // Going unchecked → checked: bank a roll
+        setPendingSubRolls(r => r + 1);
+      }
+      return { ...d, subtasks: toggleById(d.subtasks, id) };
+    });
+  }
   function deleteSub(id)           { setDraft(d => ({ ...d, subtasks: deleteById(d.subtasks, id) })); }
   function addChildSub(pid, child) { setDraft(d => ({ ...d, subtasks: addChildTo(d.subtasks, pid, child) })); }
 
@@ -853,9 +946,24 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
             placeholder="Task name"
             placeholderTextColor="#9ca3af"
             value={draft.title}
-            onChangeText={v => field('title', v)}
+            onChangeText={v => { field('title', v); setShowTitleSuggestions(true); }}
+            onFocus={() => setShowTitleSuggestions(true)}
+            onBlur={() => setTimeout(() => setShowTitleSuggestions(false), 150)}
             autoFocus={isNew}
           />
+          {showTitleSuggestions && titleSuggestions.length > 0 && (
+            <View style={styles.autocompleteDrop}>
+              {titleSuggestions.map(t => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={styles.autocompleteItem}
+                  onPress={() => { field('title', t.title); setShowTitleSuggestions(false); }}
+                >
+                  <Text style={styles.autocompleteText} numberOfLines={1}>{t.title}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           {/* Status */}
           <Text style={styles.fieldLabel}>Status</Text>
@@ -964,7 +1072,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
           {/* Estimated Time */}
           <Text style={styles.fieldLabel}>Estimated Time</Text>
           <View style={styles.chipGroup}>
-            {[15, 30, 45, 60, 90, 120].map(m => {
+            {[5, 10, 15, 30, 45, 60, 90, 120].map(m => {
               const label = m >= 60 ? `${m / 60}h` : `${m}m`;
               const isActive = draft.estimatedMinutes === m;
               return (
@@ -983,7 +1091,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
             placeholder="Custom minutes (e.g. 25)"
             placeholderTextColor="#9ca3af"
             keyboardType="number-pad"
-            value={draft.estimatedMinutes && ![15,30,45,60,90,120].includes(draft.estimatedMinutes) ? String(draft.estimatedMinutes) : ''}
+            value={draft.estimatedMinutes && ![5,10,15,30,45,60,90,120].includes(draft.estimatedMinutes) ? String(draft.estimatedMinutes) : ''}
             onChangeText={v => {
               const num = parseInt(v, 10);
               field('estimatedMinutes', isNaN(num) ? null : Math.max(1, num));
@@ -1024,26 +1132,85 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
 
           {/* Tags */}
           <Text style={styles.fieldLabel}>Tags</Text>
-          <View style={styles.chipGroup}>
-            {draft.tags.map(tag => (
-              <TouchableOpacity key={tag} style={[styles.optChip, { backgroundColor: '#ede9fe', paddingRight: 8, gap: 4, flexDirection: 'row', alignItems: 'center' }]} onPress={() => removeTag(tag)}>
-                <Text style={[styles.optChipText, { color: '#6366f1' }]}>{tag}</Text>
-                <Ionicons name="close-circle" size={14} color="#6366f1" />
+          {/* Active tags on this task */}
+          {draft.tags.length > 0 && (
+            <View style={styles.chipGroup}>
+              {draft.tags.map(tag => (
+                <TouchableOpacity key={tag} style={[styles.optChip, { backgroundColor: '#ede9fe', paddingRight: 8, gap: 4, flexDirection: 'row', alignItems: 'center' }]} onPress={() => removeTag(tag)}>
+                  <Text style={[styles.optChipText, { color: '#6366f1' }]}>{tag}</Text>
+                  <Ionicons name="close-circle" size={14} color="#6366f1" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+          {/* Existing tags menu (collapsed by default) */}
+          {existingTags.filter(t => !draft.tags.includes(t)).length > 0 && (
+            <View style={{ marginBottom: 6 }}>
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, borderWidth: 1, borderColor: '#ddd6fe', backgroundColor: '#f5f3ff', marginBottom: showExistingTagMenu ? 8 : 0 }}
+                onPress={() => setShowExistingTagMenu(s => !s)}
+              >
+                <Ionicons name="pricetags-outline" size={13} color="#7c3aed" />
+                <Text style={{ fontSize: 12, color: '#7c3aed', fontWeight: '700' }}>Existing Tags</Text>
+                <Ionicons name={showExistingTagMenu ? 'chevron-up' : 'chevron-down'} size={12} color="#7c3aed" />
               </TouchableOpacity>
-            ))}
+              {showExistingTagMenu && (
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                  {existingTags.filter(t => !draft.tags.includes(t)).map(tag => (
+                    <TouchableOpacity
+                      key={tag}
+                      style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#ddd6fe', backgroundColor: '#f5f3ff' }}
+                      onPress={() => { setDraft(d => ({ ...d, tags: [...d.tags, tag] })); }}
+                    >
+                      <Text style={{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }}>+ #{tag}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+          <View style={{ position: 'relative', zIndex: 10 }}>
+            <TextInput
+              style={[styles.fieldInput, { marginTop: 4 }]}
+              placeholder="New tag — press Enter to add"
+              placeholderTextColor="#9ca3af"
+              value={tagInput}
+              onChangeText={v => { setTagInput(v); setShowTagSuggestions(true); }}
+              onSubmitEditing={handleTagSubmit}
+              onFocus={() => setShowTagSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowTagSuggestions(false), 150)}
+              blurOnSubmit={false}
+            />
+            {showTagSuggestions && tagSuggestions.length > 0 && (
+              <View style={styles.autocompleteDrop}>
+                {tagSuggestions.map(tag => (
+                  <TouchableOpacity
+                    key={tag}
+                    style={styles.autocompleteItem}
+                    onPress={() => {
+                      setDraft(d => ({ ...d, tags: [...d.tags, tag] }));
+                      setTagInput('');
+                      setShowTagSuggestions(false);
+                    }}
+                  >
+                    <Text style={styles.autocompleteText} numberOfLines={1}># {tag}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            )}
           </View>
-          <TextInput
-            style={[styles.fieldInput, { marginTop: draft.tags.length > 0 ? 8 : 0 }]}
-            placeholder="Type a tag and press Enter"
-            placeholderTextColor="#9ca3af"
-            value={tagInput}
-            onChangeText={setTagInput}
-            onSubmitEditing={handleTagSubmit}
-            blurOnSubmit={false}
-          />
 
           {/* Subtasks */}
-          <Text style={styles.fieldLabel}>Subtasks</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 }}>
+            <Text style={[styles.fieldLabel, { marginTop: 0, marginBottom: 0 }]}>Subtasks</Text>
+            {pendingSubRolls > 0 && (
+              <View style={{ backgroundColor: '#6366f1', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                <Text style={{ fontSize: 12, fontWeight: '900', color: '#fff' }}>{pendingSubRolls}</Text>
+                <Text style={{ fontSize: 12 }}>🎲</Text>
+                <Text style={{ fontSize: 9, fontWeight: '800', color: 'rgba(255,255,255,0.8)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Banked</Text>
+              </View>
+            )}
+          </View>
           
           {is1stStep && (
             <View style={{ marginBottom: 12 }}>
@@ -1116,7 +1283,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
           {/* Save */}
           <TouchableOpacity
             style={[styles.saveBtn, !draft.title.trim() && { opacity: 0.4 }]}
-            onPress={() => draft.title.trim() && onSave(draft)}
+            onPress={() => draft.title.trim() && onSave(draft, pendingSubRolls)}
           >
             <Text style={styles.saveText}>{isNew ? 'Create Task' : 'Save Changes'}</Text>
           </TouchableOpacity>
@@ -1612,7 +1779,7 @@ function FocusYourDay({ tasks, onComplete }) {
 
 export default function TasksScreen() {
   const { colors } = useTheme();
-  const { tasks, setTasks, logTaskEvent, isSyncing } = useTasks();
+  const { tasks, setTasks, logTaskEvent, taskHistory, isSyncing } = useTasks();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -1692,6 +1859,91 @@ export default function TasksScreen() {
   const listRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const [showCompleted, setShowCompleted] = useState(true);
+  const [confirmQueue, setConfirmQueue] = useState([]); // tasks needing midnight confirmation
+  const [showTagMenu, setShowTagMenu] = useState(false);
+
+  // Midnight confirmation: surface pending/active/first_step tasks from prior days
+  const LAST_SESSION_KEY = 'adhddice_last_session_date';
+  const CONFIRM_STATUSES = ['pending', 'active', 'first_step'];
+
+  function checkMidnightConfirmation(currentTasks) {
+    const todayKey = getLocalDateKey();
+    const unresolvedFromPriorDay = currentTasks.filter(t =>
+      CONFIRM_STATUSES.includes(t.status) &&
+      t.dueDate &&
+      (() => {
+        const [m, d, y] = t.dueDate.split('/');
+        const dueDateKey = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+        return dueDateKey < todayKey;
+      })()
+    );
+    if (unresolvedFromPriorDay.length > 0) {
+      setConfirmQueue(unresolvedFromPriorDay);
+    }
+  }
+
+  useEffect(() => {
+    if (tasks.length > 0) {
+      checkMidnightConfirmation(tasks);
+    }
+    // Save today's date for next-session comparison
+    AsyncStorage.setItem(LAST_SESSION_KEY, getLocalDateKey());
+  }, []); // Run once on mount
+
+  // Re-check on visibility change (e.g. returning to tab after midnight)
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    function handleVisibility() {
+      if (document.visibilityState === 'visible') {
+        checkMidnightConfirmation(tasks);
+        AsyncStorage.setItem(LAST_SESSION_KEY, getLocalDateKey());
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [tasks]);
+
+  function handleMidnightConfirm(taskId, choice) {
+    // choice: 'done' | 'missed'
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
+
+    if (choice === 'done') {
+      // Backdate completion to 11pm the previous day
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      yesterday.setHours(23, 0, 0, 0);
+      const yesterdayKey = getLocalDateKey(yesterday);
+      const completedAt = yesterday.toISOString();
+      const updatedHistory = { ...(task.statusHistory || {}), [yesterdayKey]: 'done' };
+      // Save the backdated history first, then trigger the roll flow
+      setTasks(prev => prev.map(t => t.id === taskId ? {
+        ...t,
+        statusHistory: updatedHistory,
+        streak: calculateTaskStreak(updatedHistory),
+      } : t));
+      logTaskEvent({ ...task, completedAt }, 'done');
+      setConfirmQueue(prev => prev.filter(t => t.id !== taskId));
+      // Trigger roll flow — it will handle status/completedAt/reward
+      setTimeout(() => setCompletingTask({ ...task, statusHistory: updatedHistory, intent: 'done', _backdatedCompletedAt: completedAt }), 100);
+      return;
+    } else {
+      incrementMissedStreak();
+      const todayKey = getLocalDateKey();
+      const updatedHistory = { ...(task.statusHistory || {}), [todayKey]: 'missed' };
+      const nextDue = calcNextDueDate(task);
+      setTasks(prev => prev.map(t => t.id === taskId ? {
+        ...t,
+        status: 'missed',
+        streak: calculateTaskStreak(updatedHistory),
+        statusHistory: updatedHistory,
+        ...(nextDue ? { nextDueDate: nextDue } : {}),
+      } : t));
+      logTaskEvent(task, 'missed');
+    }
+
+    setConfirmQueue(prev => prev.filter(t => t.id !== taskId));
+  }
 
   // Self-healing: Correct any mismatched streaks on load
   useEffect(() => {
@@ -1734,8 +1986,16 @@ export default function TasksScreen() {
     const q = search.toLowerCase();
     filtered = filtered.filter(t => t.title.toLowerCase().includes(q) || (t.tags || []).some(tag => tag.toLowerCase().includes(q)));
   }
+  // todayStr is YYYY-MM-DD; task.dueDate is MM/DD/YYYY — build both formats
+  const [tyear, tmonth, tday] = todayStr.split('-');
+  const todayMDY = `${tmonth}/${tday}/${tyear}`;
+  const dueTodayCount = tasks.filter(t => t.dueDate === todayMDY).length;
+
   if (filterStatus.length > 0) {
     filtered = filtered.filter(t => {
+      if (filterStatus.includes('due_today')) {
+        if (t.dueDate === todayMDY) return true;
+      }
       if (filterStatus.includes(t.status)) return true;
       if (filterStatus.includes('done')) {
         const h = t.statusHistory?.[todayStr];
@@ -1819,14 +2079,17 @@ export default function TasksScreen() {
     if (!targetStatus) targetStatus = STATUSES[subject.status || 'pending'].next;
     
     if (targetStatus === 'done' || targetStatus === 'did_my_best') {
-      // Eagerly stamp statusHistory so calendar colors even if modal is dismissed without rolling
-      const todayKey = getLocalDateKey();
-      setTasks(prev => prev.map(t => {
-        if (t.id === taskId) {
-          return { ...t, statusHistory: { ...(t.statusHistory || {}), [todayKey]: targetStatus } };
-        }
-        return t;
-      }));
+      // Only stamp the parent's statusHistory when completing the main task itself,
+      // not when a subtask is completed — subtasks are independent of the parent status
+      if (!subtaskId) {
+        const todayKey = getLocalDateKey();
+        setTasks(prev => prev.map(t => {
+          if (t.id === taskId) {
+            return { ...t, statusHistory: { ...(t.statusHistory || {}), [todayKey]: targetStatus } };
+          }
+          return t;
+        }));
+      }
       setShuffleTask(null);
       setCompletingTask({ ...subject, intent: targetStatus, parentTaskId: subtaskId ? taskId : null });
     } else if (targetStatus === 'missed') {
@@ -1846,7 +2109,14 @@ export default function TasksScreen() {
                 incrementMissedStreak();
                 logTaskEvent(task, 'missed');
                 const updatedHistory = { ...(task.statusHistory || {}), [getLocalDateKey()]: 'missed' };
-                setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'missed', streak: calculateTaskStreak(updatedHistory), statusHistory: updatedHistory } : t));
+                const nextDue = calcNextDueDate(task);
+                setTasks(prev => prev.map(t => t.id === taskId ? {
+                  ...t,
+                  status: 'missed',
+                  streak: calculateTaskStreak(updatedHistory),
+                  statusHistory: updatedHistory,
+                  ...(nextDue ? { nextDueDate: nextDue } : {}),
+                } : t));
               }
           }}
         ]
@@ -1878,6 +2148,17 @@ export default function TasksScreen() {
 
   function handleTaskCompleting(id, reward) {
     incrementActiveStreak();
+    
+    if (completingTask?.isSubtaskRoll) {
+      setCompletingTask(null);
+      if (rewardQueue.length > 0) {
+        const [next, ...rest] = rewardQueue;
+        setRewardQueue(rest);
+        setTimeout(() => setCompletingTask(next), 400);
+      }
+      return;
+    }
+
     const today = getLocalDateKey();
 
     setTasks(prev => prev.map(t => {
@@ -1885,40 +2166,7 @@ export default function TasksScreen() {
       if (!completingTask.parentTaskId && t.id === id) {
         let nextData = {};
         if (t.frequency) {
-          // For "days after completion" modes, always base off today
-          const useToday = t.frequency === 'DaysAfter' || t.weeklyMode === 'days_after';
-          let base;
-          if (useToday) {
-            base = new Date();
-          } else {
-            base = t.dueDate ? new Date(t.dueDate) : new Date();
-            if (isNaN(base.valueOf())) base = new Date(); // fallback if stored dueDate is invalid
-          }
-
-          if (t.frequency === 'Daily') {
-            base.setDate(base.getDate() + 1);
-          } else if (t.frequency === 'Weekly') {
-            if (t.weeklyMode === 'days_after') {
-              base.setDate(base.getDate() + 7);
-            } else if (t.weeklyDay != null) {
-              // Advance to next occurrence of the chosen weekday
-              const targetDay = t.weeklyDay;
-              let daysAhead = (targetDay - base.getDay() + 7) % 7;
-              if (daysAhead === 0) daysAhead = 7; // same day → next week
-              base.setDate(base.getDate() + daysAhead);
-            } else {
-              base.setDate(base.getDate() + 7);
-            }
-          } else if (t.frequency === 'Monthly') {
-            base.setMonth(base.getMonth() + 1);
-          } else if (t.frequency === 'Yearly') {
-            base.setFullYear(base.getFullYear() + 1);
-          } else if (t.frequency === 'DaysAfter') {
-            // base is already today; add frequencyDays (default 1 if missing)
-            base.setDate(base.getDate() + (t.frequencyDays || 1));
-          }
-
-          const formatted = `${String(base.getMonth() + 1).padStart(2, '0')}/${String(base.getDate()).padStart(2, '0')}/${base.getFullYear()}`;
+          const formatted = calcNextDueDate(t);
           nextData.nextDueDate = formatted;
           nextData.dueDate = formatted;
           nextData.status = 'upcoming';
@@ -1930,8 +2178,13 @@ export default function TasksScreen() {
         // For recurring tasks nextData overrides status/gainedReward/completedAt; for one-off tasks use completion intent
         const finalStatus = nextData.status || completingTask.intent;
         const finalReward = nextData.status ? null : reward; // recurring tasks don't hold a reward
-        const finalCompletedAt = nextData.status ? null : today;
-        const updatedHistory = { ...(t.statusHistory || {}), [today]: completingTask.intent };
+        // Use backdated timestamp if provided (e.g. midnight confirm "done")
+        const finalCompletedAt = nextData.status ? null : (completingTask._backdatedCompletedAt || new Date().toISOString());
+        // Use the backdated date key if available
+        const historyKey = completingTask._backdatedCompletedAt
+          ? getLocalDateKey(new Date(completingTask._backdatedCompletedAt))
+          : today;
+        const updatedHistory = { ...(t.statusHistory || {}), [historyKey]: completingTask.intent };
         const updated = {
           ...t,
           gainedReward: finalReward,
@@ -1950,7 +2203,7 @@ export default function TasksScreen() {
         let subToLog = null;
         const updatedSubtasks = mapSubtasks(t.subtasks || [], s => {
            if (s.id === id) {
-             const updatedSub = { ...s, status: completingTask.intent, gainedReward: reward, completedAt: today };
+             const updatedSub = { ...s, status: completingTask.intent, gainedReward: reward, completedAt: new Date().toISOString() };
              subToLog = updatedSub;
              return updatedSub;
            }
@@ -1977,10 +2230,10 @@ export default function TasksScreen() {
     }, 300);
   }
 
-  function saveTask(draft) {
+  function saveTask(draft, subtaskRolls = 0) {
     if (draft.id) {
       const existing = tasks.find(t => t.id === draft.id);
-      
+
       // Moving out of done states -> Deduct
       if (existing && (existing.status === 'done' || existing.status === 'did_my_best') && (draft.status !== 'done' && draft.status !== 'did_my_best')) {
         if (existing.gainedReward) {
@@ -1989,7 +2242,7 @@ export default function TasksScreen() {
         draft.gainedReward = null;
         draft.completedAt = null;
       }
-      
+
       // Moving into done states -> Trigger overlay
       if (existing && (existing.status !== 'done' && existing.status !== 'did_my_best') && (draft.status === 'done' || draft.status === 'did_my_best')) {
         // Save all changes EXCEPT status, then trigger completion modal
@@ -2005,6 +2258,20 @@ export default function TasksScreen() {
       : [...prev, { ...draft, id: String(nextTaskId++) }]
     );
     setEditingTask(null);
+
+    // Bank rolls for subtasks checked off during editing
+    if (subtaskRolls > 0) {
+      const rollItems = Array.from({ length: subtaskRolls }, () => ({
+        ...draft,
+        intent: 'done',
+        parentTaskId: null,
+        isSubtaskRoll: true,
+      }));
+      setTimeout(() => {
+        setCompletingTask(rollItems[0]);
+        if (rollItems.length > 1) setRewardQueue(rollItems.slice(1));
+      }, 150);
+    }
   }
   function deleteTask(id) {
     setTasks(prev => prev.filter(t => t.id !== id));
@@ -2138,6 +2405,20 @@ export default function TasksScreen() {
               <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700' }}>Clear</Text>
             </TouchableOpacity>
           )}
+          {dueTodayCount > 0 && (() => {
+            const active = filterStatus.includes('due_today');
+            return (
+              <TouchableOpacity
+                key="due_today"
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: active ? '#0ea5e9' : '#bae6fd', backgroundColor: active ? '#0ea5e9' : '#fff' }}
+                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== 'due_today') : [...prev, 'due_today'])}
+              >
+                <Ionicons name="calendar" size={10} color={active ? '#fff' : '#0ea5e9'} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : '#0ea5e9' }}>Due Today</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : '#0ea5e980' }}>{dueTodayCount}</Text>
+              </TouchableOpacity>
+            );
+          })()}
           {['first_step', 'active', 'pending', 'missed', 'upcoming', 'done'].map(s => {
             const cfg = STATUSES[s];
             const active = filterStatus.includes(s);
@@ -2183,29 +2464,58 @@ export default function TasksScreen() {
 
       {/* ── Persistent Filter Dashboard ── */}
       <View style={{ marginBottom: 12 }}>
-        {/* Row 1: Tags */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 8 }}>
+        {/* Row 1: Tag controls */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 8, paddingBottom: 8 }}>
           {(filterTags.length > 0 || filterEnergy.length > 0) && (
-             <TouchableOpacity
-               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca', marginRight: 4 }}
-               onPress={() => { setFilterTags([]); setFilterEnergy([]); }}
-             >
-               <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '800' }}>Clear Filters</Text>
-             </TouchableOpacity>
+            <TouchableOpacity
+              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' }}
+              onPress={() => { setFilterTags([]); setFilterEnergy([]); setShowTagMenu(false); }}
+            >
+              <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '800' }}>Clear</Text>
+            </TouchableOpacity>
           )}
-          {['untagged', ...allTags].map((tag, i) => {
-            const active = filterTags.includes(tag);
+          {/* Untagged chip */}
+          {(() => {
+            const active = filterTags.includes('untagged');
             return (
-              <TouchableOpacity 
-                key={"tag-" + i} 
-                style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f3ff', borderBackgroundWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
-                onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== tag) : [...prev, tag])}
+              <TouchableOpacity
+                style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
+                onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== 'untagged') : [...prev, 'untagged'])}
               >
-                <Text style={[{ fontSize: 13, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>#{tag}</Text>
+                <Text style={[{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>Untagged</Text>
               </TouchableOpacity>
-            )
-          })}
-        </ScrollView>
+            );
+          })()}
+          {/* Tags menu button */}
+          {allTags.length > 0 && (
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: filterTags.filter(t => t !== 'untagged').length > 0 ? '#8b5cf6' : '#f5f3ff', borderWidth: 1, borderColor: filterTags.filter(t => t !== 'untagged').length > 0 ? '#8b5cf6' : '#ddd6fe' }}
+              onPress={() => setShowTagMenu(s => !s)}
+            >
+              <Text style={{ fontSize: 12, fontWeight: '600', color: filterTags.filter(t => t !== 'untagged').length > 0 ? '#fff' : '#7c3aed' }}>
+                Tags{filterTags.filter(t => t !== 'untagged').length > 0 ? ` (${filterTags.filter(t => t !== 'untagged').length})` : ''}
+              </Text>
+              <Ionicons name={showTagMenu ? 'chevron-up' : 'chevron-down'} size={12} color={filterTags.filter(t => t !== 'untagged').length > 0 ? '#fff' : '#7c3aed'} />
+            </TouchableOpacity>
+          )}
+        </View>
+        {/* Tag menu dropdown */}
+        {showTagMenu && (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 8 }}>
+            {allTags.map(tag => {
+              const active = filterTags.includes(tag);
+              return (
+                <TouchableOpacity
+                  key={tag}
+                  style={[{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
+                  onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== tag) : [...prev, tag])}
+                >
+                  <Text style={[{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>#{tag}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* Row 2: Energy & AND/OR */}
         <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 }}>
@@ -2237,6 +2547,33 @@ export default function TasksScreen() {
       </View>
 
       <View style={styles.divider} />
+
+      {/* ── Midnight Confirmation Section ── */}
+      {confirmQueue.length > 0 && (
+        <View style={{ marginHorizontal: 16, marginBottom: 16, borderRadius: 14, backgroundColor: '#1e1b4b', overflow: 'hidden' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, padding: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.1)' }}>
+            <Ionicons name="moon" size={16} color="#a5b4fc" />
+            <Text style={{ color: '#a5b4fc', fontWeight: '800', fontSize: 13 }}>Check In — Did you do these yesterday?</Text>
+          </View>
+          {confirmQueue.map(t => (
+            <View key={t.id} style={{ flexDirection: 'row', alignItems: 'center', padding: 12, borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.08)' }}>
+              <Text style={{ flex: 1, color: '#e0e7ff', fontSize: 14, fontWeight: '600' }}>{t.title}</Text>
+              <TouchableOpacity
+                style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#10b981', marginRight: 8 }}
+                onPress={() => handleMidnightConfirm(t.id, 'done')}
+              >
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Done</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: '#ef4444' }}
+                onPress={() => handleMidnightConfirm(t.id, 'missed')}
+              >
+                <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>Missed</Text>
+              </TouchableOpacity>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* ── List view ── */}
       {view === 'list' && (
@@ -2313,6 +2650,7 @@ export default function TasksScreen() {
         return (
           <TaskHistoryModal
             task={liveHistoryTask}
+            taskHistory={taskHistory}
             pendingRolls={historyNewCompletions}
             onClose={() => {
               const count = historyNewCompletions;
@@ -2425,7 +2763,10 @@ const styles = StyleSheet.create({
   detailHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: Platform.OS === 'ios' ? 8 : 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6', position: 'relative', zIndex: 10, elevation: 4, backgroundColor: '#fff' },
   detailHeaderTitle:{ fontSize: 17, fontWeight: '600', color: '#111827' },
   detailBody:       { padding: 20, gap: 4, paddingBottom: 120 },
-  titleInput:       { fontSize: 22, fontWeight: '600', color: '#111827', paddingVertical: 8, marginBottom: 8, borderBottomWidth: 2, borderBottomColor: '#6366f1' },
+  titleInput:       { fontSize: 22, fontWeight: '600', color: '#111827', paddingVertical: 8, marginBottom: 0, borderBottomWidth: 2, borderBottomColor: '#6366f1' },
+  autocompleteDrop: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, marginTop: 4, marginBottom: 8, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
+  autocompleteItem: { paddingVertical: 10, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  autocompleteText: { fontSize: 15, color: '#111827' },
   fieldLabel:       { fontSize: 12, fontWeight: '600', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 8 },
   fieldInput:       { borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, padding: 12, fontSize: 15, color: '#111827', backgroundColor: '#f9fafb' },
   multilineInput:   { height: 90, paddingTop: 12, textAlignVertical: 'top' },

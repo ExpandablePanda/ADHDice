@@ -14,6 +14,26 @@ export function getLocalDateKey(date = new Date()) {
   return `${year}-${month}-${day}`;
 }
 
+export function calculateTaskMissedStreak(history = {}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let streak = 0;
+  for (let i = 0; i <= 365; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = getLocalDateKey(d);
+    const s = history[key];
+    if (s === 'missed') {
+      streak++;
+    } else if (i === 0) {
+      continue; // today might not be recorded yet
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 export function calculateTaskStreak(history = {}) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -196,13 +216,13 @@ export function TasksProvider({ children }) {
 
     const timeoutId = setTimeout(saveData, 1500); // 1.5s debounce for multi-device stability
 
-    // Add a backup "Save on Exit" for web
+    // pagehide is BFCache-compatible (beforeunload disables BFCache in Safari)
     const handleUnload = () => saveData();
-    if (Platform.OS === 'web') window.addEventListener('beforeunload', handleUnload);
+    if (Platform.OS === 'web') window.addEventListener('pagehide', handleUnload);
 
     return () => {
       clearTimeout(timeoutId);
-      if (Platform.OS === 'web') window.removeEventListener('beforeunload', handleUnload);
+      if (Platform.OS === 'web') window.removeEventListener('pagehide', handleUnload);
     };
   }, [tasks, taskHistory, loaded, user, storagePrefix]);
 

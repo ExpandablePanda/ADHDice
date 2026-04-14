@@ -8,7 +8,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build": "npx expo export --platform web",
-    "deploy": "npm run build && npx netlify deploy --dir=dist --prod"
+    "deploy": "npm run build && npx netlify deploy --dir=dist --prod",
+    "ship": "npm run deploy && git push origin main"
   },
   "dependencies": {
     "@expo/metro-runtime": "~6.1.2",

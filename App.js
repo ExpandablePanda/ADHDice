@@ -58,7 +58,7 @@ function RPGHeaderRight() {
   );
 }
 
-const APP_VERSION = 'V.01.24';
+const APP_VERSION = 'V.01.31';
 
 function LogoHeaderLeft() {
   return (
@@ -85,6 +85,17 @@ function MainApp() {
         const saved = localStorage.getItem(NAV_STATE_KEY);
         if (saved) setInitialNavState(JSON.parse(saved));
       } catch (_) {}
+
+      // When Safari restores from BFCache (e.g. switching back from a full-screen Space),
+      // the page is not reloaded — dispatch visibilitychange so contexts can re-sync
+      const handlePageShow = (e) => {
+        if (e.persisted) {
+          document.dispatchEvent(new Event('visibilitychange'));
+        }
+      };
+      window.addEventListener('pageshow', handlePageShow);
+      setNavReady(true);
+      return () => window.removeEventListener('pageshow', handlePageShow);
     }
     setNavReady(true);
   }, []);

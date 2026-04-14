@@ -420,6 +420,32 @@ function RecordDiceModal({ visible, onReward, colors, title = "NEW RECORD!" }) {
   const [baseRoll, setBaseRoll] = useState(1);
   const [multiRoll, setMultiRoll] = useState(1);
   const spinVal = useRef(new Animated.Value(0)).current;
+  const rollSoundRef = useRef(null);
+
+  useEffect(() => {
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
+        rollSoundRef.current = sound;
+      } catch (e) {
+        console.log('Failed to load dice-roll sound', e);
+      }
+    }
+    loadSound();
+    return () => {
+      if (rollSoundRef.current) {
+        rollSoundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  async function playRollSound() {
+    try {
+      if (rollSoundRef.current) {
+        await rollSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
 
   useEffect(() => {
     if (visible) startRoll();
@@ -427,6 +453,7 @@ function RecordDiceModal({ visible, onReward, colors, title = "NEW RECORD!" }) {
 
   const startRoll = () => {
     setStep('rollBase');
+    playRollSound();
     Animated.timing(spinVal, { toValue: 1, duration: 1500, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => {
       const base = Math.floor(Math.random() * 20) + 1;
       setBaseRoll(base);
@@ -435,6 +462,7 @@ function RecordDiceModal({ visible, onReward, colors, title = "NEW RECORD!" }) {
       
       setTimeout(() => {
         setStep('rollMulti');
+        playRollSound();
         Animated.timing(spinVal, { toValue: 1, duration: 1200, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start(() => {
           const multi = Math.floor(Math.random() * 4) + 1;
           setMultiRoll(multi);

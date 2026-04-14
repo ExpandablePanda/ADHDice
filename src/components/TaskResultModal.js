@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, Easing } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
 import { useEconomy } from '../lib/EconomyContext';
 import { colors } from '../theme';
 
@@ -21,6 +22,32 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
   const [multiRoll, setMultiRoll] = useState(1);
   
   const spinVal = useRef(new Animated.Value(0)).current;
+  const rollSoundRef = useRef(null);
+
+  useEffect(() => {
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
+        rollSoundRef.current = sound;
+      } catch (e) {
+        console.log('Failed to load dice-roll sound', e);
+      }
+    }
+    loadSound();
+    return () => {
+      if (rollSoundRef.current) {
+        rollSoundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  async function playRollSound() {
+    try {
+      if (rollSoundRef.current) {
+        await rollSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
 
   useEffect(() => {
     if (visible) {
@@ -32,6 +59,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
   function handleRoll(opt) {
     setSelectedOpt(opt);
     setStep('rollBase');
+    playRollSound();
     
     // First roll: Base dice
     Animated.timing(spinVal, {
@@ -48,6 +76,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
       // Wait to reveal base number
       setTimeout(() => {
         setStep('rollMulti');
+        playRollSound();
         
         // Second roll: d20 Multiplier
         Animated.timing(spinVal, {

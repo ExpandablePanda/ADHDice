@@ -5,6 +5,7 @@ import {
   ScrollView, KeyboardAvoidingView, Platform,
   Dimensions,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -318,6 +319,33 @@ export default function DiceScreen() {
   const [result, setResult]         = useState(null); // { face, prize }
   const [showManager, setShowManager] = useState(false);
   
+  const rollSoundRef = useRef(null);
+
+  useEffect(() => {
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
+        rollSoundRef.current = sound;
+      } catch (e) {
+        console.log('Failed to load dice-roll sound', e);
+      }
+    }
+    loadSound();
+    return () => {
+      if (rollSoundRef.current) {
+        rollSoundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  async function playRollSound() {
+    try {
+      if (rollSoundRef.current) {
+        await rollSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
+  
   const scrollRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
   const handleScroll = (event) => {
@@ -439,6 +467,42 @@ export default function DiceScreen() {
       
       setHistory(h => [{ face: logFace, prize: finalPrize, time: Date.now() }, ...h].slice(0, 20));
   }
+  
+  // Daily 8 AM Reshuffle Prompt
+  useEffect(() => {
+    if (!loaded || !dailyBoard) return;
+    
+    async function checkDailyPrompt() {
+      const now = new Date();
+      if (now.getHours() < 8) return; // Only prompt at or after 8 AM
+      
+      const today = now.toDateString();
+      const promptKey = `${storagePrefix}last_daily_reshuffle_prompt`;
+      const lastPrompt = await AsyncStorage.getItem(promptKey);
+      
+      if (lastPrompt !== today) {
+        // Mark as prompted today immediately to avoid multiple alerts
+        await AsyncStorage.setItem(promptKey, today);
+        
+        Alert.alert(
+          'Daily Board Refresh 🎲',
+          'It is past 8:00 AM! Would you like to perform a free manual reshuffle of your D20 rewards board for the day?',
+          [
+            { text: 'Maybe Later', style: 'cancel' },
+            { 
+              text: 'Reshuffle Now', 
+              onPress: () => {
+                const newBoard = { date: today, map: generateDailyPool(pools) };
+                setDailyBoard(newBoard);
+                Alert.alert('Success!', 'Board has been reshuffled for free.');
+              }
+            }
+          ]
+        );
+      }
+    }
+    checkDailyPrompt();
+  }, [loaded, dailyBoard, storagePrefix, pools]);
 
   const submitRollResult = (face) => {
     let basePrize = dailyBoard.map[face] || 'Fallback Prize';
@@ -515,6 +579,7 @@ export default function DiceScreen() {
 
     setRolling(true);
     setResult(null);
+    playRollSound();
     resultFade.setValue(0);
     spin.setValue(0);
     bounce.setValue(1);
@@ -753,27 +818,15 @@ export default function DiceScreen() {
             </TouchableOpacity>
           </View>
         )}
-
-        {/* 5x4 Persistent Grid Board */}
-        {dailyBoard && dailyBoard.map && (
-           <View style={{ marginBottom: 24, paddingHorizontal: 16 }}>
-             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>Active D20 Board</Text>
-                <TouchableOpacity onPress={handleManualShuffle}>
-                   <Ionicons name="shuffle" size={20} color={colors.primary} />
-                </TouchableOpacity>
-             </View>
-             {renderGridBoard(false)}
-           </View>
-        )}
-
-        {/* Result card */}
+        
+        {/* Result card — moved above board */}
         {result && (
           <Animated.View style={[styles.resultCard, {
             opacity: resultFade,
             transform: [
               { scale: Animated.multiply(resultFade, pulseAnim) },
             ],
+            marginBottom: 24, // spacing
           }]}>
             <View style={styles.resultFaceBadge}>
               <Text style={styles.resultFaceText}>{result.face}</Text>
@@ -796,6 +849,19 @@ export default function DiceScreen() {
               <Text style={styles.rollAgainText}>Roll Again</Text>
             </TouchableOpacity>
           </Animated.View>
+        )}
+
+        {/* 5x4 Persistent Grid Board */}
+        {dailyBoard && dailyBoard.map && (
+           <View style={{ marginBottom: 24, paddingHorizontal: 16 }}>
+             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text }}>Active D20 Board</Text>
+                <TouchableOpacity onPress={handleManualShuffle}>
+                   <Ionicons name="shuffle" size={20} color={colors.primary} />
+                </TouchableOpacity>
+             </View>
+             {renderGridBoard(false)}
+           </View>
         )}
 
         {/* Empty state */}
