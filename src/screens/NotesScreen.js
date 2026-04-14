@@ -10,6 +10,7 @@ import { useNotes } from '../lib/NotesContext';
 import { useTasks } from '../lib/TasksContext';
 import { useTheme } from '../lib/ThemeContext';
 import ScrollToTop from '../components/ScrollToTop';
+import ModalScreen from '../components/ModalScreen';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 
@@ -275,7 +276,7 @@ function NoteEditorModal({ visible, note, onSave, onDelete, onConvert, onClose }
 
   return (
     <Modal visible={visible} animationType="slide">
-      <SafeAreaView style={[styles.editorScreen, { backgroundColor: colors.background }]}>
+      <ModalScreen style={[styles.editorScreen, { backgroundColor: colors.background }]}>
         <View style={styles.editorHeader}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
             <Ionicons name="close" size={24} color={colors.textSecondary} />
@@ -335,7 +336,7 @@ function NoteEditorModal({ visible, note, onSave, onDelete, onConvert, onClose }
             textAlignVertical="top"
           />
         </ScrollView>
-      </SafeAreaView>
+      </ModalScreen>
     </Modal>
   );
 }

@@ -2,10 +2,10 @@ import React, { useState, useRef, useEffect } from 'react';
 // ADHDice: Cloud-Sync & Real-time Enabled 🚀
 import {
   View, Text, SectionList, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, Modal, KeyboardAvoidingView, Platform,
+  StyleSheet, Modal, KeyboardAvoidingView, Platform, Image,
   ScrollView, Alert, Animated, RefreshControl,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
@@ -17,6 +17,7 @@ import TaskResultModal from '../components/TaskResultModal';
 import CalendarModal from '../components/CalendarModal';
 import TimePickerModal from '../components/TimePickerModal';
 import ScrollToTop from '../components/ScrollToTop';
+import ModalScreen from '../components/ModalScreen';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_GAP = 12;
@@ -234,7 +235,7 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+      <ModalScreen style={{ flex: 1, backgroundColor: '#fff' }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 8 : 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
           <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
             <Ionicons name="close" size={22} color="#6b7280" />
@@ -392,7 +393,7 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
             </TouchableOpacity>
           </View>
         )}
-      </SafeAreaView>
+      </ModalScreen>
     </Modal>
   );
 }
@@ -532,8 +533,23 @@ function SectionHeader({ title, status, count, collapsed, onToggle }) {
 // CARD VIEW
 // ═════════════════════════════════════════════════════════════════════════════
 
-function TaskCard({ task, onConfirmStatus, onOpen, onHistory }) {
+function TaskCard({ task, onConfirmStatus, onOpen, onHistory, isFlipped, onFlipCard }) {
   const [stagedStatus, setStagedStatus] = useState(null);
+  const flipAnim = useRef(new Animated.Value(isFlipped ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(flipAnim, {
+      toValue: isFlipped ? 1 : 0,
+      friction: 8,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  }, [isFlipped]);
+
+  const frontRotate = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '180deg'] });
+  const backRotate  = flipAnim.interpolate({ inputRange: [0, 1], outputRange: ['180deg', '360deg'] });
+  const frontOpacity = flipAnim.interpolate({ inputRange: [0, 0.5, 0.5, 1], outputRange: [1, 1, 0, 0] });
+  const backOpacity  = flipAnim.interpolate({ inputRange: [0, 0.5, 0.5, 1], outputRange: [0, 0, 1, 1] });
 
   const currentStatusKey = stagedStatus || task.status || 'pending';
   const status = STATUSES[currentStatusKey] || STATUSES.pending;
@@ -551,6 +567,18 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory }) {
   }
 
   return (
+    <View style={{ width: CARD_W, height: CARD_H }}>
+      {/* Card Back */}
+      <Animated.View
+        style={[styles.card, styles.cardBack, { transform: [{ rotateY: backRotate }], opacity: backOpacity, position: 'absolute', top: 0, left: 0 }]}
+      >
+        <TouchableOpacity style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }} activeOpacity={0.8} onPress={() => onFlipCard && onFlipCard(task.id)}>
+          <Image source={require('../../assets/logo.png')} style={{ width: 175, height: 175, resizeMode: 'contain' }} />
+        </TouchableOpacity>
+      </Animated.View>
+
+      {/* Card Front */}
+      <Animated.View style={{ transform: [{ rotateY: frontRotate }], opacity: frontOpacity }}>
     <TouchableOpacity style={[styles.card, { borderColor: status?.color || '#cbd5e1', backgroundColor: status?.color || '#ffffff' }]} activeOpacity={0.75} onPress={() => onOpen(task)}>
 
       {/* Top-left corner — status (like a card rank) */}
@@ -632,6 +660,8 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory }) {
         ))}
       </View>
     </TouchableOpacity>
+      </Animated.View>
+    </View>
   );
 }
 
@@ -715,6 +745,7 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 function TaskDetailModal({ task, onSave, onDelete, onClose }) {
+  const { top } = useSafeAreaInsets();
   const is1stStep = task.is1stStepTrigger;
   const initialState = { 
     ...task, 
@@ -765,7 +796,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
 
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.detailScreen} edges={['top', 'left', 'right', 'bottom']}>
+      <View style={[styles.detailScreen, { paddingTop: top }]}>
         <View style={styles.detailHeader}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Ionicons name="close" size={22} color="#6b7280" />
@@ -1056,7 +1087,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
             <Text style={styles.saveText}>{isNew ? 'Create Task' : 'Save Changes'}</Text>
           </TouchableOpacity>
         </ScrollView>
-      </SafeAreaView>
+      </View>
 
       <CalendarModal
         visible={!!calOpenFor} 
@@ -1560,6 +1591,7 @@ export default function TasksScreen() {
   
   // Audio — use ref to avoid stale-closure unload bug
   const shuffleSoundRef = useRef(null);
+  const flipSoundRef = useRef(null);
 
   useEffect(() => {
     async function setupAudio() {
@@ -1569,10 +1601,16 @@ export default function TasksScreen() {
           staysActiveInBackground: false,
           shouldDuckAndroid: true,
         });
+        // Pre-load flip sound so it fires instantly on first tap
+        const { sound: flip } = await Audio.Sound.createAsync(require('../../assets/card-flip.mp3'));
+        flipSoundRef.current = flip;
       } catch (e) {}
     }
     setupAudio();
-    return () => { if (shuffleSoundRef.current) shuffleSoundRef.current.unloadAsync(); };
+    return () => {
+      if (shuffleSoundRef.current) shuffleSoundRef.current.unloadAsync();
+      if (flipSoundRef.current) flipSoundRef.current.unloadAsync();
+    };
   }, []);
 
   async function playShuffleSound() {
@@ -1582,6 +1620,18 @@ export default function TasksScreen() {
       } else {
         const { sound } = await Audio.Sound.createAsync(require('../../assets/card-shuffle.mp3'));
         shuffleSoundRef.current = sound;
+        await sound.playAsync();
+      }
+    } catch (e) {}
+  }
+
+  async function playFlipSound() {
+    try {
+      if (flipSoundRef.current) {
+        await flipSoundRef.current.replayAsync();
+      } else {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/card-flip.mp3'));
+        flipSoundRef.current = sound;
         await sound.playAsync();
       }
     } catch (e) {}
@@ -1604,6 +1654,7 @@ export default function TasksScreen() {
   const [filterTags, setFilterTags] = useState([]);
   const [filterMode, setFilterMode] = useState('OR'); // 'AND' | 'OR'
   const [filterStatus, setFilterStatus] = useState([]); // Status filter chips
+  const [flippedCards, setFlippedCards] = useState(new Set());
   const listRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
@@ -1654,6 +1705,27 @@ export default function TasksScreen() {
   filtered = [...filtered].sort((a, b) => {
     return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
   });
+
+  // allFlipped derived after filtered is ready
+  const allFlipped = filtered.length > 0 && filtered.every(t => flippedCards.has(t.id));
+
+  function flipAllCards() {
+    playFlipSound();
+    if (allFlipped) {
+      setFlippedCards(new Set());
+    } else {
+      setFlippedCards(new Set(filtered.map(t => t.id)));
+    }
+  }
+
+  function flipCard(id) {
+    playFlipSound();
+    setFlippedCards(prev => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }
 
   const triggerShuffle = () => {
     const pool = filtered.filter(t => t.status === 'pending' || t.status === 'active');
@@ -1956,13 +2028,18 @@ export default function TasksScreen() {
           ))}
         </View>
         {view === 'cards' && filtered.length > 0 && (
-          <TouchableOpacity
-            style={styles.shuffleBtn}
-            onPress={triggerShuffle}
-          >
-            <Ionicons name="shuffle" size={15} color="#6366f1" />
-            <Text style={styles.shuffleBtnText}>Shuffle Cards</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity style={styles.shuffleBtn} onPress={triggerShuffle}>
+              <Ionicons name="shuffle" size={15} color="#6366f1" />
+              <Text style={styles.shuffleBtnText}>Shuffle</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.shuffleBtn, allFlipped && { backgroundColor: '#6366f1' }]} onPress={flipAllCards}>
+              <Ionicons name="albums" size={15} color={allFlipped ? '#fff' : '#6366f1'} />
+              <Text style={[styles.shuffleBtnText, allFlipped && { color: '#fff' }]}>
+                {allFlipped ? 'Reveal All' : 'Flip All'}
+              </Text>
+            </TouchableOpacity>
+          </View>
         )}
       </View>
 
@@ -2091,7 +2168,7 @@ export default function TasksScreen() {
           ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
           : <View style={styles.cardGrid}>
               {filtered.map((item, i) => (
-                <TaskCard key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />
+                <TaskCard key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} isFlipped={flippedCards.has(item.id)} onFlipCard={flipCard} />
               ))}
             </View>
       )}
@@ -2232,7 +2309,8 @@ const styles = StyleSheet.create({
   cardList:        { padding: 14, paddingBottom: 40 },
   cardRow:         { gap: 12, marginBottom: 12 },
   cardGrid:        { flexDirection: 'row', flexWrap: 'wrap', padding: 14, paddingBottom: 40, gap: 12 },
-  card:            { width: CARD_W, height: CARD_H, backgroundColor: '#fff', borderRadius: 14, borderWidth: 2, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 5, justifyContent: 'space-between' },
+  cardBack:        { backgroundColor: '#ffffff', borderColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center', backfaceVisibility: 'hidden' },
+  card:            { width: CARD_W, height: CARD_H, backgroundColor: '#fff', borderRadius: 14, borderWidth: 2, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 5, justifyContent: 'space-between', backfaceVisibility: 'hidden' },
   cardCorner:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardCornerDot:   { width: 7, height: 7, borderRadius: 4 },
   cardCornerLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4 },

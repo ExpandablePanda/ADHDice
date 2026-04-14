@@ -15,6 +15,7 @@ import { useProfile } from '../lib/ProfileContext';
 import { supabase } from '../lib/supabase';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollToTop from '../components/ScrollToTop';
+import ModalScreen from '../components/ModalScreen';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -844,7 +845,12 @@ export default function DiceScreen() {
         {/* History */}
         {history.length > 0 && (
           <View style={styles.historySection}>
-            <Text style={styles.historyTitle}>Recent Rolls</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text style={styles.historyTitle}>Recent Rolls</Text>
+              <TouchableOpacity onPress={() => setHistory([])} style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, borderWidth: 1, borderColor: '#ef4444' }}>
+                <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '600' }}>Clear</Text>
+              </TouchableOpacity>
+            </View>
             {history.map((h, i) => (
               <View key={`${h.time}-${i}`} style={styles.historyRow}>
                 <View style={styles.historyFace}>
@@ -867,7 +873,7 @@ export default function DiceScreen() {
 
       {/* Any Prize Picker Modal */}
       <Modal visible={!!showAnyPicker} animationType="slide">
-        <SafeAreaView style={styles.managerScreen}>
+        <ModalScreen style={styles.managerScreen}>
           <View style={styles.managerHeader}>
              <TouchableOpacity onPress={() => setShowAnyPicker(null)} style={styles.iconBtn}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
              <Text style={styles.managerTitle}>Pick a Prize</Text>
@@ -887,12 +893,12 @@ export default function DiceScreen() {
                </View>
              ))}
           </ScrollView>
-        </SafeAreaView>
+        </ModalScreen>
       </Modal>
 
       {/* Swap UI Modal */}
       <Modal visible={!!showSwapUI} animationType="slide">
-        <SafeAreaView style={styles.managerScreen}>
+        <ModalScreen style={styles.managerScreen}>
           <View style={styles.managerHeader}>
              <TouchableOpacity onPress={() => setShowSwapUI(null)} style={styles.iconBtn}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
              <Text style={styles.managerTitle}>Swap Board Item</Text>
@@ -938,7 +944,7 @@ export default function DiceScreen() {
                </View>
              ))}
           </ScrollView>
-        </SafeAreaView>
+        </ModalScreen>
       </Modal>
 
       {showScrollTop && <ScrollToTop scrollRef={scrollRef} />}
@@ -1136,7 +1142,7 @@ const styles = StyleSheet.create({
     marginTop: 24,
     paddingHorizontal: 20,
   },
-  historyTitle: {
+  historyTitle: { marginBottom: 0,
     fontSize: 14,
     fontWeight: '600',
     color: colors.textMuted,

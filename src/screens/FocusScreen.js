@@ -10,6 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '../theme';
 import { useTheme } from '../lib/ThemeContext';
 import ScrollToTop from '../components/ScrollToTop';
+import ModalScreen from '../components/ModalScreen';
 import { useFocus } from '../lib/FocusContext';
 import { useEconomy } from '../lib/EconomyContext';
 
@@ -260,7 +261,7 @@ function EntryModal({ visible, entry, onSave, onDelete, onClose, categories = DE
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={styles.modalScreen}>
+      <ModalScreen style={styles.modalScreen}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
             <Ionicons name="close" size={22} color={colors.textSecondary} />
@@ -364,7 +365,7 @@ function EntryModal({ visible, entry, onSave, onDelete, onClose, categories = DE
             <Text style={styles.saveText}>{isEdit ? 'Save Changes' : 'Add Entry'}</Text>
           </TouchableOpacity>
         </ScrollView>
-      </SafeAreaView>
+      </ModalScreen>
     </Modal>
   );
 }
@@ -373,15 +374,84 @@ function EntryModal({ visible, entry, onSave, onDelete, onClose, categories = DE
 // CATEGORY MANAGER MODAL
 // ═════════════════════════════════════════════════════════════════════════════
 
+// Curated list of Ionicons for the icon picker
+const ICON_PICKER_ICONS = [
+  'briefcase-outline','book-outline','color-palette-outline','fitness-outline','home-outline',
+  'person-outline','ellipsis-horizontal-outline','heart-outline','star-outline','flame-outline',
+  'musical-notes-outline','headset-outline','code-slash-outline','terminal-outline','laptop-outline',
+  'phone-portrait-outline','camera-outline','image-outline','videocam-outline','mic-outline',
+  'chatbubble-outline','mail-outline','calendar-outline','alarm-outline','time-outline',
+  'bicycle-outline','walk-outline','barbell-outline','basketball-outline','football-outline',
+  'leaf-outline','flower-outline','earth-outline','water-outline','sunny-outline',
+  'moon-outline','cloudy-outline','thunderstorm-outline','snow-outline','umbrella-outline',
+  'car-outline','airplane-outline','train-outline','boat-outline','rocket-outline',
+  'restaurant-outline','cafe-outline','pizza-outline','beer-outline','wine-outline',
+  'medkit-outline','bandage-outline','glasses-outline','shirt-outline','bag-outline',
+  'cart-outline','gift-outline','trophy-outline','ribbon-outline','medal-outline',
+  'bulb-outline','flash-outline','battery-charging-outline','wifi-outline','bluetooth-outline',
+  'brush-outline','pencil-outline','create-outline','cut-outline','build-outline',
+  'construct-outline','hammer-outline','flask-outline','beaker-outline','telescope-outline',
+  'dice-outline','game-controller-outline','puzzle-outline','chess-outline',
+  'paw-outline','bug-outline','fish-outline','logo-github-outline','logo-youtube-outline',
+];
+
+function IconPickerModal({ visible, current, onSelect, onClose }) {
+  const [search, setSearch] = useState('');
+  const filtered = search
+    ? ICON_PICKER_ICONS.filter(i => i.includes(search.toLowerCase()))
+    : ICON_PICKER_ICONS;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+        <View style={{ backgroundColor: '#1f2937', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 16, maxHeight: '75%' }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <Text style={{ fontSize: 16, fontWeight: '700', color: '#f9fafb' }}>Choose Icon</Text>
+            <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color="#9ca3af" /></TouchableOpacity>
+          </View>
+          <TextInput
+            style={{ backgroundColor: '#374151', color: '#f9fafb', borderRadius: 10, paddingHorizontal: 12, paddingVertical: 8, marginBottom: 12, fontSize: 14 }}
+            placeholder="Search icons..."
+            placeholderTextColor="#6b7280"
+            value={search}
+            onChangeText={setSearch}
+            autoCorrect={false}
+            autoCapitalize="none"
+          />
+          <ScrollView keyboardShouldPersistTaps="handled">
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingBottom: 24 }}>
+              {filtered.map(iconName => (
+                <TouchableOpacity
+                  key={iconName}
+                  onPress={() => { onSelect(iconName); onClose(); }}
+                  style={{
+                    width: 52, height: 52, borderRadius: 12, alignItems: 'center', justifyContent: 'center',
+                    backgroundColor: current === iconName ? '#4f46e5' : '#374151',
+                    borderWidth: current === iconName ? 2 : 0,
+                    borderColor: '#818cf8',
+                  }}
+                >
+                  <Ionicons name={iconName} size={24} color={current === iconName ? '#fff' : '#d1d5db'} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function CategoryManagerModal({ visible, categories, onClose, onSave }) {
   const [drafts, setDrafts] = useState(categories);
+  const [pickerIdx, setPickerIdx] = useState(null);
 
   useEffect(() => {
     if (visible) setDrafts(categories);
   }, [visible, categories]);
 
   function addCat() {
-    setDrafts([...drafts, { key: 'cat_' + Date.now(), label: 'New Category', icon: '✨', color: '#6366f1' }]);
+    setDrafts([...drafts, { key: 'cat_' + Date.now(), label: 'New Category', icon: 'star-outline', color: '#6366f1' }]);
   }
 
   function updateCat(idx, field, val) {
@@ -404,7 +474,7 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
 
   return (
     <Modal visible={visible} animationType="slide">
-      <SafeAreaView style={styles.modalScreen}>
+      <ModalScreen style={styles.modalScreen}>
         <View style={styles.modalHeader}>
           <TouchableOpacity onPress={onClose} style={styles.iconBtn}>
             <Ionicons name="close" size={22} color={colors.textSecondary} />
@@ -414,40 +484,52 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
             <Ionicons name="checkmark" size={22} color="#10b981" />
           </TouchableOpacity>
         </View>
-        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
-          <Text style={styles.hint}>You can use any emoji for the icon! (If you type an ionicons name, it will render the icon).</Text>
-          {drafts.map((cat, idx) => (
-            <View key={cat.key || idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
-              <View style={{ gap: 2 }}>
-                <TouchableOpacity onPress={() => moveCat(idx, -1)} style={{ padding: 4, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0}>
-                  <Ionicons name="chevron-up" size={16} color="#6b7280" />
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+          <ScrollView contentContainerStyle={[styles.modalBody, { paddingBottom: 120 }]} keyboardShouldPersistTaps="handled">
+            {drafts.map((cat, idx) => (
+              <View key={cat.key || idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }}>
+                <View style={{ gap: 2 }}>
+                  <TouchableOpacity onPress={() => moveCat(idx, -1)} style={{ padding: 4, opacity: idx === 0 ? 0.3 : 1 }} disabled={idx === 0}>
+                    <Ionicons name="chevron-up" size={16} color="#6b7280" />
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => moveCat(idx, 1)} style={{ padding: 4, opacity: idx === drafts.length - 1 ? 0.3 : 1 }} disabled={idx === drafts.length - 1}>
+                    <Ionicons name="chevron-down" size={16} color="#6b7280" />
+                  </TouchableOpacity>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setPickerIdx(idx)}
+                  style={{ width: 50, height: 44, borderRadius: 10, backgroundColor: cat.color || '#374151', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#4b5563' }}
+                >
+                  {ICON_PICKER_ICONS.includes(cat.icon)
+                    ? <Ionicons name={cat.icon} size={22} color="#fff" />
+                    : <Text style={{ fontSize: 22 }}>{cat.icon || '✨'}</Text>
+                  }
                 </TouchableOpacity>
-                <TouchableOpacity onPress={() => moveCat(idx, 1)} style={{ padding: 4, opacity: idx === drafts.length - 1 ? 0.3 : 1 }} disabled={idx === drafts.length - 1}>
-                  <Ionicons name="chevron-down" size={16} color="#6b7280" />
+                <TextInput
+                  style={[styles.fieldInput, { flex: 1 }]}
+                  value={cat.label}
+                  onChangeText={(v) => updateCat(idx, 'label', v)}
+                  placeholder="Category Name"
+                />
+                <TouchableOpacity onPress={() => removeCat(idx)} style={{ padding: 8 }}>
+                  <Ionicons name="trash-outline" size={20} color="#ef4444" />
                 </TouchableOpacity>
               </View>
-              <TextInput 
-                style={[styles.fieldInput, { width: 50, textAlign: 'center' }]} 
-                value={cat.icon} 
-                onChangeText={(v) => updateCat(idx, 'icon', v)}
-                placeholder="✨" 
-              />
-              <TextInput 
-                style={[styles.fieldInput, { flex: 1 }]} 
-                value={cat.label} 
-                onChangeText={(v) => updateCat(idx, 'label', v)}
-                placeholder="Category Name" 
-              />
-              <TouchableOpacity onPress={() => removeCat(idx)} style={{ padding: 8 }}>
-                <Ionicons name="trash-outline" size={20} color="#ef4444" />
-              </TouchableOpacity>
-            </View>
-          ))}
-          <TouchableOpacity style={styles.manageBtn} onPress={addCat} style={{ marginTop: 12, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#6366f1', alignItems: 'center' }}>
-            <Text style={{ color: '#6366f1', fontWeight: '600' }}>+ Add Category</Text>
-          </TouchableOpacity>
-        </ScrollView>
-      </SafeAreaView>
+            ))}
+            <TouchableOpacity onPress={addCat} style={{ marginTop: 12, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#6366f1', alignItems: 'center' }}>
+              <Text style={{ color: '#6366f1', fontWeight: '600' }}>+ Add Category</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </ModalScreen>
+      {pickerIdx !== null && (
+        <IconPickerModal
+          visible={pickerIdx !== null}
+          current={drafts[pickerIdx]?.icon}
+          onSelect={(iconName) => updateCat(pickerIdx, 'icon', iconName)}
+          onClose={() => setPickerIdx(null)}
+        />
+      )}
     </Modal>
   );
 }
@@ -455,6 +537,116 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
 // ═════════════════════════════════════════════════════════════════════════════
 // FOCUS REWARD MODAL (D6 doubler)
 // ═════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FOCUS IMPORT MODAL
+// Format (one session per line):  YYYY-MM-DD, minutes, category_key
+// Example:  2024-03-15, 45, work
+// ─────────────────────────────────────────────────────────────────────────────
+function FocusImportModal({ visible, categories, onClose, onImport }) {
+  const [text, setText] = useState('');
+  const [preview, setPreview] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!visible) { setText(''); setPreview([]); setError(''); }
+  }, [visible]);
+
+  function parse(raw) {
+    setError('');
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean).filter(l => !l.startsWith('#'));
+    const parsed = [];
+    const errs = [];
+    lines.forEach((line, i) => {
+      const parts = line.split(',').map(p => p.trim());
+      if (parts.length < 2) { errs.push(`Line ${i + 1}: need at least date, minutes`); return; }
+      const [dateStr, minsStr, catKey] = parts;
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) { errs.push(`Line ${i + 1}: invalid date "${dateStr}"`); return; }
+      const minutes = parseInt(minsStr, 10);
+      if (isNaN(minutes) || minutes <= 0) { errs.push(`Line ${i + 1}: invalid minutes "${minsStr}"`); return; }
+      const cat = categories.find(c => c.key === catKey) || categories[0];
+      parsed.push({ id: String(Date.now()) + '-' + i, date, minutes, category: cat.key });
+    });
+    setPreview(parsed);
+    if (errs.length) setError(errs.join('\n'));
+    return parsed;
+  }
+
+  function handleChange(val) {
+    setText(val);
+    parse(val);
+  }
+
+  function handleImport() {
+    const entries = parse(text);
+    if (!entries.length) { setError('No valid sessions to import.'); return; }
+    onImport(entries);
+  }
+
+  const catMap = Object.fromEntries(categories.map(c => [c.key, c]));
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' }}>
+          <View style={{ backgroundColor: '#fff', borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, maxHeight: '85%' }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <Text style={{ fontSize: 18, fontWeight: '700', color: '#111827' }}>Import Focus History</Text>
+              <TouchableOpacity onPress={onClose}><Ionicons name="close" size={22} color="#6b7280" /></TouchableOpacity>
+            </View>
+
+            <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 8, lineHeight: 18 }}>
+              One session per line:{'\n'}
+              <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#374151' }}>YYYY-MM-DD, minutes, category</Text>{'\n'}
+              Category keys: {categories.map(c => c.key).join(', ')}{'\n'}
+              Example: <Text style={{ fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#374151' }}>2024-03-15, 45, work</Text>
+            </Text>
+
+            <TextInput
+              style={{ borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 10, padding: 12, fontSize: 13, minHeight: 120, fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace', color: '#111827', textAlignVertical: 'top', marginBottom: 8 }}
+              multiline
+              placeholder={'2024-01-10, 60, work\n2024-01-11, 30, study\n2024-01-12, 90, exercise'}
+              placeholderTextColor="#9ca3af"
+              value={text}
+              onChangeText={handleChange}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            {!!error && <Text style={{ color: '#ef4444', fontSize: 12, marginBottom: 8 }}>{error}</Text>}
+
+            {preview.length > 0 && (
+              <View style={{ backgroundColor: '#f0fdf4', borderRadius: 8, padding: 10, marginBottom: 12 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#059669', marginBottom: 4 }}>{preview.length} session{preview.length !== 1 ? 's' : ''} ready to import:</Text>
+                <ScrollView style={{ maxHeight: 100 }}>
+                  {preview.map((e, i) => {
+                    const cat = catMap[e.category];
+                    return (
+                      <Text key={i} style={{ fontSize: 12, color: '#374151' }}>
+                        {e.date.toLocaleDateString()} · {e.minutes}m · {cat?.label || e.category}
+                      </Text>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={{ backgroundColor: preview.length > 0 ? colors.primary : '#e5e7eb', paddingVertical: 14, borderRadius: 12, alignItems: 'center' }}
+              onPress={handleImport}
+              disabled={preview.length === 0}
+            >
+              <Text style={{ color: preview.length > 0 ? '#fff' : '#9ca3af', fontWeight: '700', fontSize: 16 }}>
+                Import {preview.length > 0 ? `${preview.length} Sessions` : ''}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
 
 function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
   const [step, setStep]     = useState('offer'); // offer | rolling | result
@@ -562,6 +754,7 @@ export default function FocusScreen() {
   const [editEntry, setEditEntry]       = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
+  const [showImport, setShowImport]     = useState(false);
   const [statsPeriod, setStatsPeriod]   = useState('today');
   const [pendingFocusReward, setPendingFocusReward] = useState(null); // { minutes, basePoints }
   const intervalRef = useRef(null);
@@ -740,6 +933,10 @@ export default function FocusScreen() {
             <Ionicons name="timer-outline" size={24} color={colors.primary} />
             <Text style={styles.headerTitle}>Focus Timer</Text>
           </View>
+          <TouchableOpacity onPress={() => setShowImport(true)} style={{ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 8, borderWidth: 1.5, borderColor: colors.primary }}>
+            <Ionicons name="download-outline" size={15} color={colors.primary} />
+            <Text style={{ fontSize: 13, fontWeight: '600', color: colors.primary }}>Import History</Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.timerSection}>
@@ -916,6 +1113,16 @@ export default function FocusScreen() {
         onClose={() => setShowCatModal(false)}
       />
       {showScrollTop && <ScrollToTop scrollRef={scrollRef} />}
+
+      <FocusImportModal
+        visible={showImport}
+        categories={categories}
+        onClose={() => setShowImport(false)}
+        onImport={(newEntries) => {
+          newEntries.forEach(e => addEntry(e));
+          setShowImport(false);
+        }}
+      />
 
       <FocusRewardModal
         visible={!!pendingFocusReward}
