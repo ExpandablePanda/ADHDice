@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 // ADHDice: Cloud-Sync & Real-time Enabled 🚀
 import {
   View, Text, SectionList, FlatList, TouchableOpacity, TextInput,
@@ -1864,8 +1864,11 @@ export default function TasksScreen() {
     }
   }
 
+  const isWeb = Platform.OS === 'web';
+
   return (
     <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
 
       {/* ── Main header ── */}
       <View style={styles.header}>
@@ -2064,51 +2067,36 @@ export default function TasksScreen() {
 
       {/* ── List view ── */}
       {view === 'list' && (
-        <SectionList
-          ref={listRef}
-          sections={sections.map(s => ({ ...s, data: collapsedSections[s.title] ? [] : s.data }))}
-          keyExtractor={(t, i) => String(t.id) + '-' + i}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-          }
-          renderItem={({ item }) => <TaskRow task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />}
-          renderSectionHeader={({ section }) => (
-            <SectionHeader 
-              title={section.title} 
-              status={section.status} 
-              count={section.fullCount} 
-              collapsed={!!collapsedSections[section.title]}
-              onToggle={(t) => setCollapsedSections(prev => ({ ...prev, [t]: !prev[t] }))}
-            />
-          )}
-          stickySectionHeadersEnabled={false}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          contentContainerStyle={styles.list}
-          scrollEnabled={Platform.OS !== 'web'}
-          ListEmptyComponent={<Text style={styles.empty}>No tasks — tap New or import.</Text>}
-        />
+        filtered.length === 0
+          ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
+          : sections.map(section => (
+              <View key={section.title}>
+                <SectionHeader
+                  title={section.title}
+                  status={section.status}
+                  count={section.fullCount}
+                  collapsed={!!collapsedSections[section.title]}
+                  onToggle={(t) => setCollapsedSections(prev => ({ ...prev, [t]: !prev[t] }))}
+                />
+                {!collapsedSections[section.title] && section.data.map((item, i) => (
+                  <TaskRow key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />
+                ))}
+              </View>
+            ))
       )}
 
       {/* ── Card view ── */}
       {view === 'cards' && (
-        <FlatList
-          ref={listRef}
-          data={filtered}
-          keyExtractor={(t, i) => String(t.id) + '-' + i}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
-          }
-          numColumns={numColumns}
-          columnWrapperStyle={styles.cardRow}
-          onScroll={handleScroll}
-          scrollEventThrottle={16}
-          contentContainerStyle={styles.cardList}
-          scrollEnabled={Platform.OS !== 'web'}
-          renderItem={({ item }) => <TaskCard task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />}
-          ListEmptyComponent={<Text style={styles.empty}>No tasks — tap New or import.</Text>}
-        />
+        filtered.length === 0
+          ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
+          : <View style={styles.cardGrid}>
+              {filtered.map((item, i) => (
+                <TaskCard key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />
+              ))}
+            </View>
       )}
+
+      </ScrollView>
 
       {/* Detail modal */}
       {editingTask && (
@@ -2198,7 +2186,7 @@ export default function TasksScreen() {
 // STYLES
 // ═════════════════════════════════════════════════════════════════════════════
 const styles = StyleSheet.create({
-  screen:       { flex: 1, backgroundColor: '#fff', ...(Platform.OS === 'web' && { overflow: 'auto' }) },
+  screen:       { flex: 1, backgroundColor: '#fff' },
 
   // Header
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8 },
@@ -2243,6 +2231,7 @@ const styles = StyleSheet.create({
   // Card view — poker card proportions (2.5 : 3.5 ratio)
   cardList:        { padding: 14, paddingBottom: 40 },
   cardRow:         { gap: 12, marginBottom: 12 },
+  cardGrid:        { flexDirection: 'row', flexWrap: 'wrap', padding: 14, paddingBottom: 40, gap: 12 },
   card:            { width: CARD_W, height: CARD_H, backgroundColor: '#fff', borderRadius: 14, borderWidth: 2, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 5, justifyContent: 'space-between' },
   cardCorner:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
   cardCornerDot:   { width: 7, height: 7, borderRadius: 4 },

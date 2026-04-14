@@ -16,7 +16,8 @@ import { TasksProvider } from './src/lib/TasksContext';
 import { EconomyProvider, useEconomy } from './src/lib/EconomyContext';
 import { NotesProvider } from './src/lib/NotesContext';
 import { FocusProvider } from './src/lib/FocusContext';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, Image, Platform } from 'react-native';
 
 import { ProfileProvider, useProfile } from './src/lib/ProfileContext';
 
@@ -57,7 +58,7 @@ function RPGHeaderRight() {
   );
 }
 
-const APP_VERSION = 'V.01.03';
+const APP_VERSION = 'V.01.06';
 
 function LogoHeaderLeft() {
   return (
@@ -71,11 +72,34 @@ function LogoHeaderLeft() {
   );
 }
 
+const NAV_STATE_KEY = 'adhddice_nav_state';
+
 function MainApp() {
   const { colors, isDark } = useTheme();
+  const [navReady, setNavReady] = React.useState(false);
+  const [initialNavState, setInitialNavState] = React.useState(undefined);
+
+  React.useEffect(() => {
+    if (Platform.OS === 'web') {
+      try {
+        const saved = localStorage.getItem(NAV_STATE_KEY);
+        if (saved) setInitialNavState(JSON.parse(saved));
+      } catch (_) {}
+    }
+    setNavReady(true);
+  }, []);
+
+  if (!navReady) return null;
 
   return (
-    <NavigationContainer>
+    <NavigationContainer
+      initialState={initialNavState}
+      onStateChange={(state) => {
+        if (Platform.OS === 'web') {
+          try { localStorage.setItem(NAV_STATE_KEY, JSON.stringify(state)); } catch (_) {}
+        }
+      }}
+    >
       <StatusBar style={isDark ? "light" : "dark"} />
       <Tab.Navigator
         screenOptions={({ route }) => ({
