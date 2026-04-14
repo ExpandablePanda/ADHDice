@@ -1201,7 +1201,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
           </View>
 
           {/* Subtasks */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, marginBottom: 8 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16, marginBottom: 8 }}>
             <Text style={[styles.fieldLabel, { marginTop: 0, marginBottom: 0 }]}>Subtasks</Text>
             {pendingSubRolls > 0 && (
               <View style={{ backgroundColor: '#6366f1', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, flexDirection: 'row', alignItems: 'center', gap: 5 }}>

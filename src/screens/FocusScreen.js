@@ -4,6 +4,7 @@ import {
   TextInput, FlatList, Alert, ScrollView,
   KeyboardAvoidingView, Platform, Dimensions, Animated,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
@@ -652,6 +653,32 @@ function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
   const [step, setStep]     = useState('offer'); // offer | rolling | result
   const [roll, setRoll]     = useState(null);
   const spinVal              = useRef(new Animated.Value(0)).current;
+  const rollSoundRef         = useRef(null);
+
+  useEffect(() => {
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
+        rollSoundRef.current = sound;
+      } catch (e) {
+        console.log('Failed to load dice-roll sound', e);
+      }
+    }
+    loadSound();
+    return () => {
+      if (rollSoundRef.current) {
+        rollSoundRef.current.unloadAsync();
+      }
+    };
+  }, []);
+
+  async function playRollSound() {
+    try {
+      if (rollSoundRef.current) {
+        await rollSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
 
   useEffect(() => {
     if (visible) { setStep('offer'); setRoll(null); }
@@ -659,12 +686,15 @@ function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
 
   function handleRoll() {
     setStep('rolling');
+    playRollSound();
     Animated.sequence([
       Animated.timing(spinVal, { toValue: 1, duration: 800, useNativeDriver: true }),
     ]).start(() => {
       const r = Math.floor(Math.random() * 6) + 1;
       setRoll(r);
       setStep('result');
+      // Play sound again on result reveal for impact
+      playRollSound();
       spinVal.setValue(0);
     });
   }
@@ -856,18 +886,23 @@ export default function FocusScreen() {
 
   function saveEntry(entry) {
     const isExisting = entries.some(e => e.id === entry.id);
+    let basePoints = 0;
     if (isExisting) {
       updateEntry(entry);
     } else {
       addEntry(entry);
       // Award focus points: 0.5 pts per minute, then offer D6 doubler
-      const basePoints = Math.floor(entry.minutes * 0.5);
-      if (basePoints > 0) {
-        setPendingFocusReward({ minutes: entry.minutes, basePoints });
-      }
+      basePoints = Math.floor(entry.minutes * 0.5);
     }
+    
     setEditEntry(null);
     setShowAddModal(false);
+    
+    if (basePoints > 0) {
+      setTimeout(() => {
+        setPendingFocusReward({ minutes: entry.minutes, basePoints });
+      }, 300);
+    }
   }
 
   function handleDeleteEntry(id) {
@@ -1130,7 +1165,7 @@ export default function FocusScreen() {
         basePoints={pendingFocusReward?.basePoints || 0}
         onClose={() => setPendingFocusReward(null)}
         onClaim={(pts) => {
-          addReward(pts, 0);
+          addReward(pts, Math.floor(pts / 2));
           setPendingFocusReward(null);
         }}
       />
