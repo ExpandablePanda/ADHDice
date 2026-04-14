@@ -11,7 +11,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useEconomy } from '../lib/EconomyContext';
 import ScrollToTop from '../components/ScrollToTop';
 import { colors } from '../theme';
-import { useTasks } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey } from '../lib/TasksContext';
 import TaskResultModal from '../components/TaskResultModal';
 
 const SCREEN_W = Dimensions.get('window').width;
@@ -683,7 +683,7 @@ function WarGame({ onBack, tasks, colors }) {
 
   function handleWarRewardClaim(taskId, results) {
     if (opponentCard) {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateKey();
       // 1. Log to history
       logTaskEvent({ id: opponentCard.originalId, title: opponentCard.title, tags: [], energy: 'medium' }, 'done');
       

@@ -6,6 +6,34 @@ import { supabase } from './supabase';
 
 const TasksContext = createContext();
 
+export function getLocalDateKey(date = new Date()) {
+  const d = new Date(date);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function calculateTaskStreak(history = {}) {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  let streak = 0;
+  for (let i = 0; i <= 365; i++) { // look back up to a year
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const key = getLocalDateKey(d);
+    const s = history[key];
+    if (s === 'done' || s === 'did_my_best') {
+      streak++;
+    } else if (i === 0) {
+      continue; // today might not be done yet
+    } else {
+      break;
+    }
+  }
+  return streak;
+}
+
 export function TasksProvider({ children }) {
   const { storagePrefix, user } = useProfile();
   const [tasks, setTasks] = useState([]);

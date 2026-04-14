@@ -9,7 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
-import { useTasks } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey, calculateTaskStreak } from '../lib/TasksContext';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -37,7 +37,7 @@ const STATUSES = {
   missed:   { label: 'Missed', color: '#ef4444', next: 'done' },
   done:     { label: 'Done',     color: '#10b981', next: 'upcoming'  },
 };
-const STATUS_ORDER = ['first_step', 'active', 'pending', 'upcoming', 'done', 'did_my_best', 'missed'];
+const STATUS_ORDER = ['first_step', 'active', 'pending', 'missed', 'upcoming', 'done', 'did_my_best'];
 
 const ENERGY = {
   low:    { label: 'Low',    color: '#10b981', bg: '#d1fae5' },
@@ -90,6 +90,10 @@ function cycleStatusInTree(subtasks, id) {
     return s;
   });
 }
+function updateStatusInTree(subtasks, id, status) {
+  return mapSubtasks(subtasks || [], s => s.id === id ? { ...s, status } : s);
+}
+
 function findInTree(subtasks, id) {
   for (const s of subtasks) {
     if (s.id === id) return s;
@@ -128,12 +132,18 @@ function getStepPresets(title = '') {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// MAIN SCREEN
-// ═════════════════════════════════════════════════════════════════════════════
 function groupByStatus(tasks) {
-  const sections = STATUS_ORDER
+  const todayKey = getLocalDateKey();
+  const activeStatuses = ['first_step', 'active', 'pending', 'missed', 'upcoming'];
+  
+  const sections = activeStatuses
     .map(s => {
-      const data = tasks.filter(t => t.status === s && (!t.isPriority || t.status === 'done' || t.status === 'did_my_best'));
+      // Filter out tasks that were completed today from active sections
+      const data = tasks.filter(t => {
+        const h = t.statusHistory?.[todayKey];
+        const isDoneToday = h === 'done' || h === 'did_my_best';
+        return t.status === s && !t.isPriority && !isDoneToday;
+      });
       return { 
         title: STATUSES[s].label, 
         status: s, 
@@ -143,7 +153,28 @@ function groupByStatus(tasks) {
     })
     .filter(g => g.fullCount > 0);
 
-  const priorityData = tasks.filter(t => t.isPriority && t.status !== 'done' && t.status !== 'did_my_best');
+  // Group all currently 'done' tasks OR any task finished today
+  const doneData = tasks.filter(t => {
+    const h = t.statusHistory?.[todayKey];
+    const isDoneToday = h === 'done' || h === 'did_my_best';
+    return t.status === 'done' || t.status === 'did_my_best' || isDoneToday;
+  });
+
+  if (doneData.length > 0) {
+    const sortedDone = [...doneData].sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+    sections.push({
+      title: 'Done',
+      status: 'done',
+      data: sortedDone,
+      fullCount: sortedDone.length
+    });
+  }
+
+  const priorityData = tasks.filter(t => {
+    const h = t.statusHistory?.[todayKey];
+    const isDoneToday = h === 'done' || h === 'did_my_best';
+    return t.isPriority && t.status !== 'done' && t.status !== 'did_my_best' && !isDoneToday;
+  });
   if (priorityData.length > 0) {
     sections.unshift({
       title: '🔥 Priority Focus',
@@ -171,7 +202,7 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
   for (let i = 90; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().split('T')[0];
+    const key = getLocalDateKey(d);
     days.push({ date: d, key, status: history[key] || null });
   }
 
@@ -185,7 +216,7 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
   for (let i = 0; i <= 90; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
-    const key = d.toISOString().split('T')[0];
+    const key = getLocalDateKey(d);
     const s = history[key];
     if (s === 'done' || s === 'did_my_best') currentStreak++;
     else if (i === 0) continue; // today might not be recorded yet
@@ -295,7 +326,7 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
                     <View key={wi} style={{ gap: GAP }}>
                       {week.map((day, di) => {
                         if (!day) return <View key={`e${di}`} style={{ width: CELL, height: CELL }} />;
-                        const isToday = day.key === today.toISOString().split('T')[0];
+                        const isToday = day.key === getLocalDateKey();
                         const isSelected = selectedDay === day.key;
                         return (
                           <TouchableOpacity
@@ -374,7 +405,10 @@ function TaskHistoryModal({ task, onClose, onUpdateHistory, pendingRolls = 0 }) 
                     <Text style={{ fontSize: 14, color: '#111827', flex: 1 }}>
                       {new Date(date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
                     </Text>
-                    <Text style={{ fontSize: 13, color: STATUSES[status]?.color || '#6b7280', fontWeight: '600' }}>{STATUSES[status]?.label || status}</Text>
+                    <Text style={{ fontSize: 13, color: STATUSES[status]?.color || '#6b7280', fontWeight: '600', marginRight: 4 }}>{STATUSES[status]?.label || status}</Text>
+                    <TouchableOpacity onPress={() => onUpdateHistory(task.id, date, null)} style={{ padding: 4 }}>
+                      <Ionicons name="trash-outline" size={16} color="#d1d5db" />
+                    </TouchableOpacity>
                   </View>
                 ))}
             </View>
@@ -1657,6 +1691,23 @@ export default function TasksScreen() {
   const [flippedCards, setFlippedCards] = useState(new Set());
   const listRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(true);
+
+  // Self-healing: Correct any mismatched streaks on load
+  useEffect(() => {
+    if (tasks.length > 0) {
+      let changed = false;
+      const fixed = tasks.map(t => {
+        const correct = calculateTaskStreak(t.statusHistory || {});
+        if (t.streak !== correct) {
+          changed = true;
+          return { ...t, streak: correct };
+        }
+        return t;
+      });
+      if (changed) setTasks(fixed);
+    }
+  }, []); // Run once on mount
 
   const handleScroll = (event) => {
     const y = event.nativeEvent.contentOffset.y;
@@ -1664,7 +1715,7 @@ export default function TasksScreen() {
   };
 
   // Stats
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateKey();
   const stats = {
     total: tasks.length,
     today: tasks.filter(t => {
@@ -1684,7 +1735,14 @@ export default function TasksScreen() {
     filtered = filtered.filter(t => t.title.toLowerCase().includes(q) || (t.tags || []).some(tag => tag.toLowerCase().includes(q)));
   }
   if (filterStatus.length > 0) {
-    filtered = filtered.filter(t => filterStatus.includes(t.status));
+    filtered = filtered.filter(t => {
+      if (filterStatus.includes(t.status)) return true;
+      if (filterStatus.includes('done')) {
+        const h = t.statusHistory?.[todayStr];
+        return h === 'done' || h === 'did_my_best';
+      }
+      return false;
+    });
   }
   if (filterEnergy.length > 0) {
     if (filterMode === 'AND') {
@@ -1762,7 +1820,7 @@ export default function TasksScreen() {
     
     if (targetStatus === 'done' || targetStatus === 'did_my_best') {
       // Eagerly stamp statusHistory so calendar colors even if modal is dismissed without rolling
-      const todayKey = new Date().toISOString().split('T')[0];
+      const todayKey = getLocalDateKey();
       setTasks(prev => prev.map(t => {
         if (t.id === taskId) {
           return { ...t, statusHistory: { ...(t.statusHistory || {}), [todayKey]: targetStatus } };
@@ -1772,22 +1830,33 @@ export default function TasksScreen() {
       setShuffleTask(null);
       setCompletingTask({ ...subject, intent: targetStatus, parentTaskId: subtaskId ? taskId : null });
     } else if (targetStatus === 'missed') {
+      const isSub = !!subtaskId;
       Alert.alert(
-        "Missed Task",
-        "Confirming this will mark the task as missed and start a Missed Streak. Are you sure?",
+        isSub ? "Missed Subtask" : "Missed Task",
+        isSub 
+          ? `Mark "${subject.title}" as missed?`
+          : `Confirming this will mark "${task.title}" as missed and start a Missed Streak. Are you sure?`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Confirm Missed", style: "destructive", onPress: () => {
-              incrementMissedStreak();
-              logTaskEvent(task, 'missed');
-              setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'missed', streak: 0, statusHistory: { ...(t.statusHistory || {}), [new Date().toISOString().split('T')[0]]: 'missed' } } : t));
+              if (isSub) {
+                setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, 'missed') } : t));
+                logTaskEvent(subject, 'missed');
+              } else {
+                incrementMissedStreak();
+                logTaskEvent(task, 'missed');
+                const updatedHistory = { ...(task.statusHistory || {}), [getLocalDateKey()]: 'missed' };
+                setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: 'missed', streak: calculateTaskStreak(updatedHistory), statusHistory: updatedHistory } : t));
+              }
           }}
         ]
       );
     } else {
       if ((task.status === 'done' || task.status === 'did_my_best') && task.gainedReward) {
         removeReward(task.gainedReward.points, task.gainedReward.xp);
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, gainedReward: null, completedAt: null, statusHistory: { ...(t.statusHistory || {}), [new Date().toISOString().split('T')[0]]: targetStatus } } : t));
+        const updatedHistory = { ...(task.statusHistory || {}), [getLocalDateKey()]: targetStatus };
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, gainedReward: null, completedAt: null, streak: calculateTaskStreak(updatedHistory), statusHistory: updatedHistory } : t));
+        logTaskEvent(task, targetStatus);
       } else {
         const existing = tasks.find(t => t.id === taskId);
         if (existing && existing.status === 'first_step' && (targetStatus === 'done' || targetStatus === 'did_my_best')) {
@@ -1795,15 +1864,21 @@ export default function TasksScreen() {
           Alert.alert("Momentum Reward!", "You completed your 1st Step! Here's a free Dice Roll.");
         }
 
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, statusHistory: { ...(t.statusHistory || {}), [new Date().toISOString().split('T')[0]]: targetStatus } } : t));
-        logTaskEvent(existing, targetStatus);
+        if (subtaskId) {
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, targetStatus) } : t));
+          logTaskEvent(subject, targetStatus);
+        } else {
+          const updatedHistory = { ...(existing.statusHistory || {}), [getLocalDateKey()]: targetStatus };
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, streak: calculateTaskStreak(updatedHistory), statusHistory: updatedHistory } : t));
+          logTaskEvent(existing, targetStatus);
+        }
       }
     }
   }
 
   function handleTaskCompleting(id, reward) {
     incrementActiveStreak();
-    const today = new Date().toISOString().split('T')[0];
+    const today = getLocalDateKey();
 
     setTasks(prev => prev.map(t => {
       // If completing the main task
@@ -1849,19 +1924,22 @@ export default function TasksScreen() {
           nextData.status = 'upcoming';
           nextData.gainedReward = null;
           nextData.completedAt = null;
+          // Reset subtasks for recurring momentum
+          nextData.subtasks = mapSubtasks(t.subtasks || [], s => ({ ...s, status: 'upcoming' }));
         }
         // For recurring tasks nextData overrides status/gainedReward/completedAt; for one-off tasks use completion intent
         const finalStatus = nextData.status || completingTask.intent;
         const finalReward = nextData.status ? null : reward; // recurring tasks don't hold a reward
         const finalCompletedAt = nextData.status ? null : today;
+        const updatedHistory = { ...(t.statusHistory || {}), [today]: completingTask.intent };
         const updated = {
           ...t,
           gainedReward: finalReward,
           completedAt: finalCompletedAt,
-          streak: (t.streak || 0) + 1,
-          statusHistory: { ...(t.statusHistory || {}), [today]: completingTask.intent },
           ...nextData,
           status: finalStatus,
+          statusHistory: updatedHistory,
+          streak: calculateTaskStreak(updatedHistory),
         };
         logTaskEvent(updated, completingTask.intent);
         return updated;
@@ -1869,12 +1947,16 @@ export default function TasksScreen() {
       
       // If completing a subtask inside this parent task
       if (completingTask.parentTaskId && t.id === completingTask.parentTaskId) {
+        let subToLog = null;
         const updatedSubtasks = mapSubtasks(t.subtasks || [], s => {
            if (s.id === id) {
-             return { ...s, status: completingTask.intent, gainedReward: reward, completedAt: today };
+             const updatedSub = { ...s, status: completingTask.intent, gainedReward: reward, completedAt: today };
+             subToLog = updatedSub;
+             return updatedSub;
            }
            return s;
         });
+        if (subToLog) logTaskEvent(subToLog, completingTask.intent);
         return { ...t, subtasks: updatedSubtasks };
       }
 
@@ -1970,18 +2052,6 @@ export default function TasksScreen() {
             )}
           </View>
         </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSearch(s => !s)}>
-            <Ionicons name="search-outline" size={20} color="#6b7280" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setImportVisible(true)}>
-            <Ionicons name="download-outline" size={20} color="#6b7280" />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.addBtn} onPress={() => setEditingTask(BLANK())}>
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={styles.addBtnText}>New</Text>
-          </TouchableOpacity>
-        </View>
       </View>
 
       {/* ── Top Stats Banner ── */}
@@ -2016,17 +2086,31 @@ export default function TasksScreen() {
 
       {/* ── Toolbar: view switcher + status chips + shuffle ── */}
       <View style={styles.toolbar}>
-        <View style={styles.viewToggle}>
-          {VIEWS.map(v => (
-            <TouchableOpacity
-              key={v.key}
-              style={[styles.viewBtn, view === v.key && styles.viewBtnActive]}
-              onPress={() => setView(v.key)}
-            >
-              <Ionicons name={v.icon} size={17} color={view === v.key ? '#6366f1' : '#9ca3af'} />
-            </TouchableOpacity>
-          ))}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+          <View style={styles.viewToggle}>
+            {VIEWS.map(v => (
+              <TouchableOpacity
+                key={v.key}
+                style={[styles.viewBtn, view === v.key && styles.viewBtnActive]}
+                onPress={() => setView(v.key)}
+              >
+                <Ionicons name={v.icon} size={17} color={view === v.key ? '#6366f1' : '#9ca3af'} />
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSearch(s => !s)}>
+            <Ionicons name="search-outline" size={19} color={showSearch ? '#6366f1' : '#6b7280'} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.iconBtn} onPress={() => setImportVisible(true)}>
+            <Ionicons name="download-outline" size={19} color="#6b7280" />
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.addBtn, { paddingHorizontal: 12, height: 32 }]} onPress={() => setEditingTask(BLANK())}>
+            <Ionicons name="add" size={18} color="#fff" />
+            <Text style={[styles.addBtnText, { fontSize: 13 }]}>New</Text>
+          </TouchableOpacity>
         </View>
+
         {view === 'cards' && filtered.length > 0 && (
           <View style={{ flexDirection: 'row', gap: 8 }}>
             <TouchableOpacity style={styles.shuffleBtn} onPress={triggerShuffle}>
@@ -2054,10 +2138,10 @@ export default function TasksScreen() {
               <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700' }}>Clear</Text>
             </TouchableOpacity>
           )}
-          {STATUS_ORDER.map(s => {
+          {['first_step', 'active', 'pending', 'missed', 'upcoming', 'done'].map(s => {
             const cfg = STATUSES[s];
             const active = filterStatus.includes(s);
-            const count = tasks.filter(t => t.status === s).length;
+            const count = s === 'done' ? stats.today : tasks.filter(t => t.status === s).length;
             if (count === 0) return null;
             return (
               <TouchableOpacity
@@ -2075,8 +2159,9 @@ export default function TasksScreen() {
       </View>
 
       {/* ── Expanded Search & Filters ── */}
+      {/* ── Search Bar (only text input now) ── */}
       {showSearch && (
-        <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+        <View style={{ paddingHorizontal: 20, marginBottom: 12 }}>
           <View style={styles.searchBar}>
             <Ionicons name="search-outline" size={16} color="#9ca3af" />
             <TextInput
@@ -2093,52 +2178,63 @@ export default function TasksScreen() {
               </TouchableOpacity>
             )}
           </View>
+        </View>
+      )}
 
-          {/* Energy Filters and AND/OR Switch */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 10 }}>
-            <TouchableOpacity 
-              style={{ backgroundColor: filterMode === 'AND' ? '#111827' : '#f3f4f6', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 16, marginRight: 8 }}
-              onPress={() => setFilterMode(m => m === 'AND' ? 'OR' : 'AND')}
-            >
-              <Text style={{ fontSize: 12, fontWeight: '800', color: filterMode === 'AND' ? '#fff' : '#6b7280' }}>
-                {filterMode}
-              </Text>
-            </TouchableOpacity>
+      {/* ── Persistent Filter Dashboard ── */}
+      <View style={{ marginBottom: 12 }}>
+        {/* Row 1: Tags */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, paddingBottom: 8 }}>
+          {(filterTags.length > 0 || filterEnergy.length > 0) && (
+             <TouchableOpacity
+               style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca', marginRight: 4 }}
+               onPress={() => { setFilterTags([]); setFilterEnergy([]); }}
+             >
+               <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '800' }}>Clear Filters</Text>
+             </TouchableOpacity>
+          )}
+          {['untagged', ...allTags].map((tag, i) => {
+            const active = filterTags.includes(tag);
+            return (
+              <TouchableOpacity 
+                key={"tag-" + i} 
+                style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f3ff', borderBackgroundWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
+                onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== tag) : [...prev, tag])}
+              >
+                <Text style={[{ fontSize: 13, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>#{tag}</Text>
+              </TouchableOpacity>
+            )
+          })}
+        </ScrollView>
 
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 6 }}>
-              {['low', 'medium', 'high', 'unset'].map(e => {
-                const active = filterEnergy.includes(e);
-                const label = e === 'unset' ? 'Unset Energy' : ENERGY[e].label;
-                return (
-                  <TouchableOpacity 
-                    key={e} 
-                    style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, borderWidth: 1, borderColor: '#e5e7eb' }, active && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
-                    onPress={() => setFilterEnergy(prev => active ? prev.filter(x => x !== e) : [...prev, e])}
-                  >
-                    <Text style={[{ fontSize: 13 }, active ? { color: '#fff' } : { color: '#6b7280' }]}>{label}</Text>
-                  </TouchableOpacity>
-                )
-              })}
-            </ScrollView>
-          </View>
+        {/* Row 2: Energy & AND/OR */}
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 }}>
+          <TouchableOpacity 
+            style={{ backgroundColor: filterMode === 'AND' ? '#111827' : '#f3f4f6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, marginRight: 10 }}
+            onPress={() => setFilterMode(m => m === 'AND' ? 'OR' : 'AND')}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '900', color: filterMode === 'AND' ? '#fff' : '#6b7280', textTransform: 'uppercase' }}>
+              {filterMode}
+            </Text>
+          </TouchableOpacity>
 
-          {/* Tag Filters */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {['untagged', ...allTags].map((tag, i) => {
-              const active = filterTags.includes(tag);
+            {['low', 'medium', 'high', 'unset'].map(e => {
+              const active = filterEnergy.includes(e);
+              const label = e === 'unset' ? 'No Energy' : ENERGY[e].label;
               return (
                 <TouchableOpacity 
-                  key={"tag-" + i} 
-                  style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#ede9fe' }, active && { backgroundColor: '#8b5cf6' }]}
-                  onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== tag) : [...prev, tag])}
+                  key={e} 
+                  style={[{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#fff' }, active && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+                  onPress={() => setFilterEnergy(prev => active ? prev.filter(x => x !== e) : [...prev, e])}
                 >
-                  <Text style={[{ fontSize: 13, color: '#6366f1' }, active && { color: '#fff' }]}>#{tag}</Text>
+                  <Text style={[{ fontSize: 11, fontWeight: '600' }, active ? { color: '#fff' } : { color: '#6b7280' }]}>{label}</Text>
                 </TouchableOpacity>
               )
             })}
           </ScrollView>
         </View>
-      )}
+      </View>
 
       <View style={styles.divider} />
 
