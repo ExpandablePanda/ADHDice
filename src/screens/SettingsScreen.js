@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import { useState, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Switch, Platform, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useEconomy } from '../lib/EconomyContext';
@@ -329,7 +329,7 @@ export default function SettingsScreen() {
         </View>
 
         <Text style={[styles.sectionLabel, { textAlign: 'center', marginTop: 40, color: colors.textMuted }]}>
-          ADHDice v1.0{'\n'}Local Storage Build
+          V.03.04{'\n'}Local Storage Build
         </Text>
 
       </ScrollView>

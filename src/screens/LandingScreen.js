@@ -1,9 +1,6 @@
-import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProfile } from '../lib/ProfileContext';
-
-const { width } = Dimensions.get('window');
 
 export default function LandingScreen() {
   const { profiles, selectProfile } = useProfile();
@@ -17,7 +14,7 @@ export default function LandingScreen() {
             source={require('../../assets/logo.png')}
             style={styles.logo}
           />
-          <Text style={styles.tagline}>Gamify Your Focus</Text>
+          <Text style={styles.tagline}>Turn your to-do list into a dice and card game!</Text>
         </View>
 
         {/* Profile chooser */}
@@ -45,7 +42,7 @@ export default function LandingScreen() {
         </View>
 
         {/* Version */}
-        <Text style={styles.version}>ADHDice v1.0</Text>
+        <Text style={styles.version}>V.03.04</Text>
       </View>
     </SafeAreaView>
   );
@@ -59,24 +56,25 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     paddingHorizontal: 24,
+    paddingTop: 40,
   },
   logoWrapper: {
     alignItems: 'center',
-    marginBottom: 48,
+    marginBottom: 12,
   },
   logo: {
-    width: width * 0.7,
-    height: 80,
+    width: 400,
+    height: 200,
     resizeMode: 'contain',
-    marginBottom: 8,
+    marginBottom: 2,
   },
   tagline: {
-    fontSize: 15,
+    fontSize: 14,
     color: '#9ca3af',
     fontWeight: '500',
-    letterSpacing: 1,
+    textAlign: 'center',
   },
   profileSection: {
     width: '100%',

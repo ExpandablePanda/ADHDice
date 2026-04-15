@@ -54,7 +54,7 @@ const VIEWS = [
 let nextTaskId    = 5;
 let nextSubtaskId = 30;
 const newSubtask  = title => ({ id: String(nextSubtaskId++), title, status: 'pending', subtasks: [] });
-const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', nextDueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
+const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
 
 // ── Frequency / next-due-date helper ─────────────────────────────────────────
 function calcNextDueDate(task) {
@@ -101,9 +101,13 @@ function calcNextDueDate(task) {
 function mapSubtasks(subtasks, fn) {
   return subtasks.map(s => fn({ ...s, subtasks: mapSubtasks(s.subtasks || [], fn) }));
 }
-function toggleById(subtasks, id) {
+function toggleById(subtasks, id, targetStatus) {
   return mapSubtasks(subtasks, s => {
     if (s.id !== id) return s;
+    if (targetStatus) {
+      const isDone = targetStatus === 'done' || targetStatus === 'did_my_best';
+      return { ...s, done: isDone, status: targetStatus };
+    }
     const nowDone = !s.done;
     return { ...s, done: nowDone, status: nowDone ? 'done' : 'pending' };
   });
@@ -238,19 +242,64 @@ function groupByStatus(tasks) {
 // TASK HISTORY MODAL
 // ═════════════════════════════════════════════════════════════════════════════
 
-function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pendingRolls = 0 }) {
+function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, onFillRange, pendingRolls = 0 }) {
   const history = task.statusHistory || {};
   const [selectedDay, setSelectedDay] = useState(null);
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [multiSelected, setMultiSelected] = useState(new Set());
+  const [showFillRange, setShowFillRange] = useState(false);
+  const CAL_DAY_OPTIONS = [7, 14, 30, 60, 90, 180, 365];
+  const [calDaysIndex, setCalDaysIndex] = useState(4); // default 90
+  const [fillStatus, setFillStatus] = useState('done');
+  const [fillStart, setFillStart] = useState('');
+  const [fillEnd, setFillEnd] = useState('');
+  const [fillError, setFillError] = useState('');
 
-  // Generate last 91 days (13 weeks)
+  function applyFillRange() {
+    setFillError('');
+    const parseDate = (str) => {
+      // Accept MM/DD/YYYY or YYYY-MM-DD
+      if (!str) return null;
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(str + 'T12:00:00');
+      if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+        const [m, d, y] = str.split('/');
+        return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00`);
+      }
+      return null;
+    };
+    const start = parseDate(fillStart);
+    const end = parseDate(fillEnd);
+    if (!start || isNaN(start)) { setFillError('Invalid start date. Use MM/DD/YYYY.'); return; }
+    if (!end || isNaN(end)) { setFillError('Invalid end date. Use MM/DD/YYYY.'); return; }
+    if (end < start) { setFillError('End date must be after start date.'); return; }
+    const dayCount = Math.round((end - start) / 86400000) + 1;
+    if (dayCount > 1000) { setFillError('Range too large (max 1000 days).'); return; }
+    const entries = {};
+    for (let i = 0; i < dayCount; i++) {
+      const d = new Date(start);
+      d.setDate(d.getDate() + i);
+      entries[getLocalDateKey(d)] = fillStatus;
+    }
+    onFillRange(task.id, entries);
+    setShowFillRange(false);
+    setFillStart('');
+    setFillEnd('');
+    setFillError('');
+  }
+
+  // Generate calendar days
+  const calDays = CAL_DAY_OPTIONS[calDaysIndex];
   const today = new Date();
   today.setHours(0, 0, 0, 0);
+  const todayKey = getLocalDateKey(today);
   const days = [];
-  for (let i = 90; i >= 0; i--) {
+  for (let i = calDays - 1; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const key = getLocalDateKey(d);
-    days.push({ date: d, key, status: history[key] || null });
+    // For today, fall back to the task's live status if no history entry yet
+    const status = history[key] || (key === todayKey ? task.status || null : null);
+    days.push({ date: d, key, status });
   }
 
   // Stats
@@ -259,8 +308,10 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
   const doneRate = trackedDays > 0 ? Math.round((doneDays / trackedDays) * 100) : 0;
 
   // Current streak (consecutive done/did_my_best ending today or yesterday)
+  // Search all history, not just last 90 days
   let currentStreak = 0;
-  for (let i = 0; i <= 90; i++) {
+  const maxStreakDays = Math.max(Object.keys(history).length + 1, 400);
+  for (let i = 0; i <= maxStreakDays; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const key = getLocalDateKey(d);
@@ -314,21 +365,23 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
   return (
     <Modal visible animationType="slide" onRequestClose={onClose}>
       <ModalScreen style={{ flex: 1, backgroundColor: '#fff' }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: Platform.OS === 'ios' ? 8 : 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
           <TouchableOpacity onPress={onClose} style={{ padding: 6 }}>
             <Ionicons name="close" size={22} color="#6b7280" />
           </TouchableOpacity>
           <Text style={{ fontSize: 17, fontWeight: '700', color: '#111827' }}>Task History</Text>
-          {pendingRolls > 0 ? (
-            <View style={{ backgroundColor: '#6366f1', borderRadius: 12, paddingHorizontal: 8, paddingVertical: 3 }}>
-              <Text style={{ fontSize: 11, fontWeight: '800', color: '#fff' }}>{pendingRolls} 🎲</Text>
-            </View>
-          ) : (
-            <View style={{ width: 34 }} />
-          )}
+          <TouchableOpacity
+            style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 10, backgroundColor: multiSelectMode ? '#6366f1' : '#f3f4f6' }}
+            onPress={() => { setMultiSelectMode(m => !m); setMultiSelected(new Set()); setSelectedDay(null); }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '700', color: multiSelectMode ? '#fff' : '#6b7280' }}>
+              {multiSelectMode ? `${multiSelected.size} selected` : 'Select'}
+            </Text>
+          </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 60 }}>
+        <ScrollView contentContainerStyle={{ padding: 20, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
           {/* Task title */}
           <Text style={{ fontSize: 20, fontWeight: '800', color: '#111827', marginBottom: 4 }}>{task.title}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 20 }}>
@@ -357,7 +410,13 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
           </View>
 
           {/* Calendar grid */}
-          <Text style={{ fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Last 90 Days</Text>
+          <TouchableOpacity
+            onPress={() => setCalDaysIndex(i => (i + 1) % CAL_DAY_OPTIONS.length)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, alignSelf: 'flex-start' }}
+          >
+            <Text style={{ fontSize: 12, fontWeight: '700', color: '#6366f1', textTransform: 'uppercase', letterSpacing: 0.5 }}>Last {calDays} Days</Text>
+            <Ionicons name="swap-horizontal" size={13} color="#6366f1" />
+          </TouchableOpacity>
           <View style={{ backgroundColor: '#f9fafb', borderRadius: 16, padding: 14, borderWidth: 1, borderColor: '#f3f4f6' }}>
             <View style={{ flexDirection: 'row' }}>
               {/* Day labels */}
@@ -374,11 +433,21 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
                       {week.map((day, di) => {
                         if (!day) return <View key={`e${di}`} style={{ width: CELL, height: CELL }} />;
                         const isToday = day.key === getLocalDateKey();
-                        const isSelected = selectedDay === day.key;
+                        const isSelected = multiSelectMode ? multiSelected.has(day.key) : selectedDay === day.key;
                         return (
                           <TouchableOpacity
                             key={day.key}
-                            onPress={() => setSelectedDay(isSelected ? null : day.key)}
+                            onPress={() => {
+                              if (multiSelectMode) {
+                                setMultiSelected(prev => {
+                                  const next = new Set(prev);
+                                  next.has(day.key) ? next.delete(day.key) : next.add(day.key);
+                                  return next;
+                                });
+                              } else {
+                                setSelectedDay(isSelected ? null : day.key);
+                              }
+                            }}
                             style={{
                               width: CELL, height: CELL, borderRadius: 3,
                               backgroundColor: getColor(day.status),
@@ -409,8 +478,35 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
             </View>
           </View>
 
-          {/* Selected day editor */}
-          {selectedDay && (
+          {/* Multi-select apply toolbar */}
+          {multiSelectMode && multiSelected.size > 0 && (
+            <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: '#6366f1' }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 10 }}>
+                Apply to {multiSelected.size} day{multiSelected.size > 1 ? 's' : ''}
+              </Text>
+              <Text style={{ fontSize: 11, color: '#9ca3af', fontWeight: '600', textTransform: 'uppercase', marginBottom: 8 }}>Set Status</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: '#1f2937' }}
+                  onPress={() => { multiSelected.forEach(d => onUpdateHistory(task.id, d, null)); setMultiSelected(new Set()); setMultiSelectMode(false); }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>Clear</Text>
+                </TouchableOpacity>
+                {STATUS_ORDER.map(s => (
+                  <TouchableOpacity
+                    key={s}
+                    style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: STATUSES[s].color }}
+                    onPress={() => { multiSelected.forEach(d => onUpdateHistory(task.id, d, s)); setMultiSelected(new Set()); setMultiSelectMode(false); }}
+                  >
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>{STATUSES[s].label}</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* Selected day editor (single-select mode) */}
+          {!multiSelectMode && selectedDay && (
             <View style={{ marginTop: 16, backgroundColor: '#fff', borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: '#e5e7eb' }}>
               <Text style={{ fontSize: 13, fontWeight: '700', color: '#111827', marginBottom: 10 }}>
                 {new Date(selectedDay + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' })}
@@ -440,6 +536,90 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
           )}
 
           {/* Recent history entries */}
+          {/* Fill Range */}
+          <View style={{ marginTop: 20 }}>
+            <TouchableOpacity
+              style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10, paddingHorizontal: 14, borderRadius: 12, backgroundColor: showFillRange ? '#6366f1' : '#f3f4f6', borderWidth: 1, borderColor: showFillRange ? '#6366f1' : '#e5e7eb' }}
+              onPress={() => { setShowFillRange(s => !s); setFillError(''); }}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Ionicons name="calendar-number-outline" size={16} color={showFillRange ? '#fff' : '#6366f1'} />
+                <Text style={{ fontSize: 13, fontWeight: '700', color: showFillRange ? '#fff' : '#6366f1' }}>Fill Date Range</Text>
+              </View>
+              <Text style={{ fontSize: 11, color: showFillRange ? 'rgba(255,255,255,0.8)' : '#9ca3af' }}>Backfill a streak from another app</Text>
+            </TouchableOpacity>
+
+            {showFillRange && (
+              <View style={{ marginTop: 10, backgroundColor: '#fff', borderRadius: 14, padding: 16, borderWidth: 1.5, borderColor: '#6366f1' }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Status to apply</Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 14 }}>
+                  {STATUS_ORDER.map(s => {
+                    const active = fillStatus === s;
+                    return (
+                      <TouchableOpacity
+                        key={s}
+                        style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, backgroundColor: active ? STATUSES[s].color : '#f3f4f6' }}
+                        onPress={() => setFillStatus(s)}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : STATUSES[s].color }}>{STATUSES[s].label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: 10, marginBottom: 10 }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', marginBottom: 4 }}>Start Date</Text>
+                    <TextInput
+                      style={{ borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: '#111827' }}
+                      placeholder="MM/DD/YYYY"
+                      placeholderTextColor="#9ca3af"
+                      value={fillStart}
+                      onChangeText={v => { setFillStart(v); setFillError(''); }}
+                      keyboardType="numbers-and-punctuation"
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '600', color: '#6b7280', marginBottom: 4 }}>End Date</Text>
+                    <TextInput
+                      style={{ borderWidth: 1.5, borderColor: '#e5e7eb', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 8, fontSize: 14, color: '#111827' }}
+                      placeholder="MM/DD/YYYY"
+                      placeholderTextColor="#9ca3af"
+                      value={fillEnd}
+                      onChangeText={v => { setFillEnd(v); setFillError(''); }}
+                      keyboardType="numbers-and-punctuation"
+                    />
+                  </View>
+                </View>
+
+                {fillError ? <Text style={{ fontSize: 12, color: '#ef4444', marginBottom: 8 }}>{fillError}</Text> : null}
+
+                {fillStart && fillEnd && (() => {
+                  const parseDate = (str) => {
+                    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(str)) {
+                      const [m, d, y] = str.split('/');
+                      return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00`);
+                    }
+                    return null;
+                  };
+                  const s = parseDate(fillStart), e = parseDate(fillEnd);
+                  if (s && e && e >= s) {
+                    const days = Math.round((e - s) / 86400000) + 1;
+                    return <Text style={{ fontSize: 12, color: '#6b7280', marginBottom: 8 }}>Will fill {days} day{days > 1 ? 's' : ''} as "{STATUSES[fillStatus]?.label}"</Text>;
+                  }
+                  return null;
+                })()}
+
+                <TouchableOpacity
+                  style={{ backgroundColor: '#6366f1', borderRadius: 10, paddingVertical: 12, alignItems: 'center' }}
+                  onPress={applyFillRange}
+                >
+                  <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Apply Range</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
+
           {trackedDays > 0 && (
             <View style={{ marginTop: 20 }}>
               <Text style={{ fontSize: 12, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10 }}>Recent Activity</Text>
@@ -488,6 +668,7 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
             </TouchableOpacity>
           </View>
         )}
+        </KeyboardAvoidingView>
       </ModalScreen>
     </Modal>
   );
@@ -497,45 +678,30 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, pe
 // LIST VIEW
 // ═════════════════════════════════════════════════════════════════════════════
 
-function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
-  const [stagedStatus, setStagedStatus] = useState(null);
+function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize }) {
+  const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [expanded, setExpanded] = useState(true);
-  const [stagedSub, setStagedSub] = useState(null); // { id, status }
+  const [openSubPicker, setOpenSubPicker] = useState(null); // subtask id with picker open
 
-  const currentStatusKey = stagedStatus || task.status || 'pending';
+  const currentStatusKey = task.status || 'pending';
   const status      = STATUSES[currentStatusKey] || STATUSES.pending;
   const energy      = task.energy ? (ENERGY[task.energy] || null) : null;
   const total       = countSubtasks(task.subtasks);
   const done        = countDone(task.subtasks);
 
-  function handleDotPress() {
-    const nextKey = status?.next || 'active';
-    setStagedStatus(nextKey);
-  }
-
-  function handleConfirm() {
-    onConfirmStatus(task.id, stagedStatus);
-    setStagedStatus(null);
-  }
-
   const hasSubtasks = (task.subtasks || []).length > 0;
 
   return (
     <View style={[styles.rowContainer, task.isPriority && task.status !== 'done' && { borderLeftWidth: 4, borderLeftColor: '#8b5cf6', backgroundColor: '#f5f3ff' }]}>
-      <TouchableOpacity 
-        style={styles.row} 
-        activeOpacity={0.6} 
-        onPress={() => onOpen(task)}
+      <TouchableOpacity
+        style={styles.row}
+        activeOpacity={0.6}
+        onPress={() => { if (showStatusPicker) { setShowStatusPicker(false); } else { onOpen(task); } }}
       >
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <TouchableOpacity onPress={handleDotPress} style={styles.dotWrap} hitSlop={8}>
+          <TouchableOpacity onPress={(e) => { e.stopPropagation(); setShowStatusPicker(s => !s); }} style={styles.dotWrap} hitSlop={8}>
             <View style={[styles.dot, { backgroundColor: status?.color || '#cbd5e1' }]} />
           </TouchableOpacity>
-          {stagedStatus && (
-            <TouchableOpacity onPress={handleConfirm} style={styles.confirmBtn} hitSlop={8}>
-              <Ionicons name="checkmark-circle" size={24} color="#10b981" />
-            </TouchableOpacity>
-          )}
         </View>
         <View style={styles.rowBody}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -547,13 +713,14 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
             )}
           </View>
           <View style={styles.metaRow}>
-            {task.status !== 'done' && task.status !== 'first_step' && (
-              <TouchableOpacity 
-                style={[styles.metaChip, { backgroundColor: '#f5f3ff', borderColor: '#8b5cf6', borderWidth: 1 }]}
-                onPress={(e) => { e.stopPropagation(); onOpen({ ...task, is1stStepTrigger: true }); }}
+            {task.isPriority && onDeprioritize && (
+              <TouchableOpacity
+                style={[styles.metaChip, { backgroundColor: '#ede9fe', borderColor: '#8b5cf6', borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 3 }]}
+                onPress={(e) => { e.stopPropagation(); onDeprioritize(task.id); }}
               >
-                <Ionicons name="rocket-outline" size={10} color="#8b5cf6" />
-                <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>1st Step</Text>
+                <Ionicons name="flame" size={10} color="#8b5cf6" />
+                <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>Focus</Text>
+                <Ionicons name="close" size={10} color="#8b5cf6" />
               </TouchableOpacity>
             )}
             <TouchableOpacity
@@ -563,6 +730,15 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
               <Ionicons name="time-outline" size={10} color="#0284c7" />
               <Text style={[styles.metaChipText, { color: '#0284c7', fontWeight: '700' }]}>History</Text>
             </TouchableOpacity>
+            {task.status !== 'done' && task.status !== 'first_step' && (
+              <TouchableOpacity
+                style={[styles.metaChip, { backgroundColor: '#f5f3ff', borderColor: '#8b5cf6', borderWidth: 1 }]}
+                onPress={(e) => { e.stopPropagation(); onOpen({ ...task, is1stStepTrigger: true }); }}
+              >
+                <Ionicons name="rocket-outline" size={10} color="#8b5cf6" />
+                <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>1st Step</Text>
+              </TouchableOpacity>
+            )}
             {energy && <View style={[styles.metaChip, { backgroundColor: energy.bg }]}><Text style={[styles.metaChipText, { color: energy.color }]}>{energy.label}</Text></View>}
             {task.estimatedMinutes ? <View style={styles.metaChip}><Ionicons name="hourglass-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>~{task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}</Text></View> : null}
             {(task.dueDate || task.dueTime) ? <View style={styles.metaChip}><Ionicons name="calendar-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{task.dueDate} {task.dueTime}</Text></View> : null}
@@ -575,26 +751,60 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory }) {
         <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
       </TouchableOpacity>
 
+      {/* Status picker chips */}
+      {showStatusPicker && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: 16, paddingBottom: 10, paddingTop: 2 }}>
+          {STATUS_ORDER.map(s => {
+            const cfg = STATUSES[s];
+            const active = currentStatusKey === s;
+            return (
+              <TouchableOpacity
+                key={s}
+                style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: active ? cfg.color : '#f3f4f6' }}
+                onPress={() => { onConfirmStatus(task.id, s); setShowStatusPicker(false); }}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
       {expanded && hasSubtasks && (
         <View style={styles.rowSubtasks}>
           {(function renderSubs(subs, depth) {
             return subs.map(s => {
-              const isStaged = stagedSub?.id === s.id;
-              const currentSubStatusKey = isStaged ? stagedSub.status : (s.status || 'pending');
-              const subCfg = STATUSES[currentSubStatusKey] || STATUSES.pending;
+              const subStatusKey = s.status || 'pending';
+              const subCfg = STATUSES[subStatusKey] || STATUSES.pending;
+              const isPickerOpen = openSubPicker === s.id;
               return (
                 <View key={s.id}>
                   <View style={[styles.rowSubtaskItem, depth > 0 && { marginLeft: depth * 14 }]}>
-                    <TouchableOpacity onPress={(e) => { e.stopPropagation(); setStagedSub({ id: s.id, status: subCfg.next }); }} hitSlop={6}>
+                    <TouchableOpacity
+                      onPress={(e) => { e.stopPropagation(); setOpenSubPicker(isPickerOpen ? null : s.id); setShowStatusPicker(false); }}
+                      hitSlop={6}
+                    >
                       <View style={[styles.subDot, { backgroundColor: subCfg.color }]} />
                     </TouchableOpacity>
-                    {isStaged && (
-                      <TouchableOpacity onPress={(e) => { e.stopPropagation(); onConfirmStatus(task.id, stagedSub.status, s.id); setStagedSub(null); }} hitSlop={6}>
-                        <Ionicons name="checkmark-circle" size={18} color="#10b981" />
-                      </TouchableOpacity>
-                    )}
                     <Text style={[styles.rowSubtaskText, (s.status === 'done' || s.status === 'did_my_best') && styles.strikeDone]}>{s.title}</Text>
                   </View>
+                  {isPickerOpen && (
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginLeft: depth * 14 + 20, marginBottom: 6 }}>
+                      {STATUS_ORDER.map(st => {
+                        const cfg = STATUSES[st];
+                        const active = subStatusKey === st;
+                        return (
+                          <TouchableOpacity
+                            key={st}
+                            style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7, backgroundColor: active ? cfg.color : '#f3f4f6' }}
+                            onPress={(e) => { e.stopPropagation(); onConfirmStatus(task.id, st, s.id); setOpenSubPicker(null); }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
                   {(s.subtasks || []).length > 0 && renderSubs(s.subtasks, depth + 1)}
                 </View>
               );
@@ -772,6 +982,7 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory, isFlipped, onFlipC
 
 function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
   const [showAdd, setShowAdd] = useState(false);
+  const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [input, setInput]     = useState('');
   const MAX_DEPTH = 3;
 
@@ -782,18 +993,16 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
     setShowAdd(false);
   }
 
-  const isChecked = subtask.done || subtask.status === 'done' || subtask.status === 'did_my_best';
+  const currentStatus = subtask.status || (subtask.done ? 'done' : 'pending');
+  const statusCfg = STATUSES[currentStatus] || STATUSES.pending;
+  const isDone = currentStatus === 'done' || currentStatus === 'did_my_best';
   return (
     <View style={{ marginLeft: depth * 18 }}>
       <View style={styles.subtaskRow}>
-        <TouchableOpacity onPress={() => onToggle(subtask.id)} style={styles.subtaskCheck}>
-          <Ionicons
-            name={isChecked ? 'checkbox' : 'square-outline'}
-            size={19}
-            color={isChecked ? '#6366f1' : '#9ca3af'}
-          />
+        <TouchableOpacity onPress={() => setShowStatusPicker(s => !s)} style={styles.subtaskCheck}>
+          <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: statusCfg.color }} />
         </TouchableOpacity>
-        <Text style={[styles.subtaskText, isChecked && styles.subtaskDone]}>{subtask.title}</Text>
+        <Text style={[styles.subtaskText, isDone && styles.subtaskDone]}>{subtask.title}</Text>
         {depth < MAX_DEPTH && (
           <TouchableOpacity onPress={() => setShowAdd(s => !s)} style={styles.subtaskAction}>
             <Ionicons name="add-circle-outline" size={16} color="#9ca3af" />
@@ -803,6 +1012,28 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
           <Ionicons name="close" size={15} color="#d1d5db" />
         </TouchableOpacity>
       </View>
+
+      {/* Status picker */}
+      {showStatusPicker && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginLeft: 34, marginBottom: 6 }}>
+          {STATUS_ORDER.map(s => {
+            const cfg = STATUSES[s];
+            const active = currentStatus === s;
+            return (
+              <TouchableOpacity
+                key={s}
+                style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: active ? cfg.color : '#f3f4f6' }}
+                onPress={() => {
+                  onToggle(subtask.id, s);
+                  setShowStatusPicker(false);
+                }}
+              >
+                <Text style={{ fontSize: 11, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
 
       {/* Nested children */}
       {(subtask.subtasks || []).map(child => (
@@ -861,7 +1092,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
   const [draft, setDraft]       = useState(initialState);
   const [subInput, setSubInput] = useState('');
   const [tagInput, setTagInput] = useState('');
-  const [calOpenFor, setCalOpenFor] = useState(null); // 'dueDate' | 'nextDueDate' | null
+  const [calOpenFor, setCalOpenFor] = useState(null); // 'dueDate' | null
   const [timeOpen, setTimeOpen] = useState(false);
   const [pendingSubRolls, setPendingSubRolls] = useState(0);
   const [showExistingTagMenu, setShowExistingTagMenu] = useState(false);
@@ -888,15 +1119,21 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
   function field(key, val) { setDraft(d => ({ ...d, [key]: val })); }
 
   // Top-level subtask actions (recursive helpers do the rest)
-  function toggleSub(id) {
+  function toggleSub(id, targetStatus) {
     setDraft(d => {
       const existing = findInTree(d.subtasks, id);
       const currentlyChecked = existing && (existing.done || existing.status === 'done' || existing.status === 'did_my_best');
-      if (!currentlyChecked) {
+      const willBeChecked = targetStatus
+        ? (targetStatus === 'done' || targetStatus === 'did_my_best')
+        : !currentlyChecked;
+      if (!currentlyChecked && willBeChecked) {
         // Going unchecked → checked: bank a roll
         setPendingSubRolls(r => r + 1);
+      } else if (currentlyChecked && !willBeChecked) {
+        // Going checked → unchecked: remove banked roll
+        setPendingSubRolls(r => Math.max(0, r - 1));
       }
-      return { ...d, subtasks: toggleById(d.subtasks, id) };
+      return { ...d, subtasks: toggleById(d.subtasks, id, targetStatus) };
     });
   }
   function deleteSub(id)           { setDraft(d => ({ ...d, subtasks: deleteById(d.subtasks, id) })); }
@@ -922,10 +1159,16 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
   }
 
   function confirmDelete() {
-    Alert.alert('Delete Task', 'Delete this task?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: () => onDelete(task.id) },
-    ]);
+    if (Platform.OS === 'web') {
+      if (window.confirm('Delete this task?')) {
+        onDelete(task.id);
+      }
+    } else {
+      Alert.alert('Delete Task', 'Delete this task?', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => onDelete(task.id) },
+      ]);
+    }
   }
 
   return (
@@ -1125,17 +1368,6 @@ function TaskDetailModal({ task, onSave, onDelete, onClose }) {
             </View>
           </View>
           
-          <View style={[styles.dateRow, { marginTop: 12 }]}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.fieldLabel}>Next Due Date</Text>
-              <TouchableOpacity onPress={() => setCalOpenFor('nextDueDate')}>
-                <View pointerEvents="none">
-                  <TextInput style={styles.fieldInput} placeholder="MM/DD/YYYY" placeholderTextColor="#9ca3af" value={draft.nextDueDate} editable={false} />
-                </View>
-              </TouchableOpacity>
-            </View>
-            <View style={{ flex: 1 }} />
-          </View>
 
           {/* Tags */}
           <Text style={styles.fieldLabel}>Tags</Text>
@@ -1321,44 +1553,59 @@ function ImportModal({ visible, onClose, onImport }) {
   const [text, setText] = useState('');
   const [mode, setMode] = useState('list'); // 'list' | 'json' | 'csv'
 
+  // CSV column order (skip header row if present):
+  // 0: Title
+  // 1: Status        (first_step | active | pending | missed | done | did_my_best | upcoming)
+  // 2: Frequency     (daily | weekly | monthly | yearly | daysafter | <number for DaysAfter>)
+  // 3: Energy        (low | medium | high)
+  // 4: Due Date      (MM/DD/YYYY)
+  // 5: Due Time      (e.g. 2:00 PM)
+  // 6: Est. Minutes  (number)
+  // 7: Tags          (dash-separated, e.g. work-home)
+  // 8: Subtasks      (dash-separated, e.g. step1-step2)
+  // Use 0 or leave blank to skip any field.
+  const CSV_TEMPLATE_HEADER = 'Title,Status,Frequency,Energy,Due Date,Due Time,Est. Minutes,Tags,Subtasks';
+
   function parseCSV(csv) {
     const lines = csv.split('\n').filter(l => l.trim());
     const validStatuses = Object.keys(STATUSES);
     const validEnergy = ['low', 'medium', 'high'];
     const validFreq = ['daily', 'weekly', 'monthly', 'yearly', 'daysafter'];
-    return lines.map(line => {
-      // Title, Status, Repeat Frequency, Energy Level, Due Date, Due Time, Next Due Date, Tags (sep by -), Subtasks (sep by -)
-      const parts = line.split(',').map(p => p.trim());
-      const val = (v) => (v && v !== '0') ? v : null;
+    return lines
+      .filter(line => !line.toLowerCase().startsWith('title,')) // skip header row
+      .map(line => {
+        const parts = line.split(',').map(p => p.trim());
+        const val = (v) => (v && v !== '0') ? v : null;
 
-      const title = parts[0] || 'Untitled Task';
-      const rawStatus = val(parts[1]);
-      const status = rawStatus && validStatuses.includes(rawStatus.toLowerCase()) ? rawStatus.toLowerCase() : 'pending';
-      const rawFreq = val(parts[2]);
-      let frequency = null;
-      let frequencyDays = null;
-      if (rawFreq) {
-        const numDays = parseInt(rawFreq, 10);
-        if (!isNaN(numDays) && numDays > 0) {
-          frequency = 'DaysAfter';
-          frequencyDays = numDays;
-        } else if (validFreq.includes(rawFreq.toLowerCase())) {
-          frequency = rawFreq.charAt(0).toUpperCase() + rawFreq.slice(1).toLowerCase();
-          if (frequency === 'Daysafter') frequency = 'DaysAfter';
+        const title = parts[0] || 'Untitled Task';
+        const rawStatus = val(parts[1]);
+        const status = rawStatus && validStatuses.includes(rawStatus.toLowerCase()) ? rawStatus.toLowerCase() : 'pending';
+        const rawFreq = val(parts[2]);
+        let frequency = null;
+        let frequencyDays = null;
+        if (rawFreq) {
+          const numDays = parseInt(rawFreq, 10);
+          if (!isNaN(numDays) && numDays > 0) {
+            frequency = 'DaysAfter';
+            frequencyDays = numDays;
+          } else if (validFreq.includes(rawFreq.toLowerCase())) {
+            frequency = rawFreq.charAt(0).toUpperCase() + rawFreq.slice(1).toLowerCase();
+            if (frequency === 'Daysafter') frequency = 'DaysAfter';
+          }
         }
-      }
-      const rawEnergy = val(parts[3]);
-      const energy = rawEnergy && validEnergy.includes(rawEnergy.toLowerCase()) ? rawEnergy.toLowerCase() : null;
-      const dueDate = val(parts[4]) || '';
-      const dueTime = val(parts[5]) || '';
-      const nextDueDate = val(parts[6]) || '';
-      const rawTags = val(parts[7]);
-      const tags = rawTags ? rawTags.split('-').map(t => t.trim()).filter(Boolean) : [];
-      const rawSubs = val(parts[8]);
-      const subtasks = rawSubs ? rawSubs.split('-').map(t => t.trim()).filter(Boolean).map(t => newSubtask(t)) : [];
+        const rawEnergy = val(parts[3]);
+        const energy = rawEnergy && validEnergy.includes(rawEnergy.toLowerCase()) ? rawEnergy.toLowerCase() : null;
+        const dueDate = val(parts[4]) || '';
+        const dueTime = val(parts[5]) || '';
+        const rawMins = val(parts[6]);
+        const estimatedMinutes = rawMins && !isNaN(parseInt(rawMins, 10)) ? parseInt(rawMins, 10) : null;
+        const rawTags = val(parts[7]);
+        const tags = rawTags ? rawTags.split('-').map(t => t.trim()).filter(Boolean) : [];
+        const rawSubs = val(parts[8]);
+        const subtasks = rawSubs ? rawSubs.split('-').map(t => t.trim()).filter(Boolean).map(t => newSubtask(t)) : [];
 
-      return { title, status, frequency, frequencyDays, energy, dueDate, dueTime, nextDueDate, tags, subtasks };
-    });
+        return { title, status, frequency, frequencyDays, energy, dueDate, dueTime, estimatedMinutes, tags, subtasks };
+      });
   }
 
   function handleImport() {
@@ -1418,53 +1665,70 @@ function ImportModal({ visible, onClose, onImport }) {
 
           <Text style={styles.hint}>
             {mode === 'list' && "Paste tasks line-by-line."}
-            {mode === 'csv' && "Format: Title, Status, Frequency, Energy, Due Date, Due Time, Next Due Date, Tags (-sep), Subtasks (-sep). Use 0 to skip a field."}
+            {mode === 'csv' && "Columns: Title, Status, Frequency, Energy, Due Date, Due Time, Est. Minutes, Tags (-sep), Subtasks (-sep). Use 0 or leave blank to skip a field. Header row is optional."}
             {mode === 'json' && "Paste a JSON array of task objects."}
           </Text>
 
           {mode === 'csv' && (
-            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
-              <TouchableOpacity 
-                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#ede9fe', borderWidth: 1, borderColor: '#c4b5fd' }}
-                onPress={async () => {
-                  try {
-                    const DocumentPicker = require('expo-document-picker');
-                    const FileSystem = require('expo-file-system');
-                    const result = await DocumentPicker.getDocumentAsync({ type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/csv'], copyToCacheDirectory: true });
-                    if (!result.canceled && result.assets && result.assets[0]) {
-                      const fileUri = result.assets[0].uri;
-                      const content = await FileSystem.readAsStringAsync(fileUri);
-                      setText(content);
+            <>
+              {/* Column reference */}
+              <View style={{ backgroundColor: '#f8fafc', borderRadius: 8, padding: 10, marginBottom: 8, borderWidth: 1, borderColor: '#e2e8f0' }}>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#6b7280', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Column Order</Text>
+                {[
+                  ['Title', 'e.g. Clean House'],
+                  ['Status', 'first_step | active | pending | missed | done | upcoming'],
+                  ['Frequency', 'daily | weekly | monthly | yearly | daysafter | <days>'],
+                  ['Energy', 'low | medium | high'],
+                  ['Due Date', 'MM/DD/YYYY'],
+                  ['Due Time', 'e.g. 2:00 PM'],
+                  ['Est. Minutes', 'e.g. 30'],
+                  ['Tags', 'dash-separated: work-home'],
+                  ['Subtasks', 'dash-separated: step1-step2'],
+                ].map(([col, hint], i) => (
+                  <View key={col} style={{ flexDirection: 'row', gap: 6, marginBottom: 2 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#6366f1', width: 100 }}>{i + 1}. {col}</Text>
+                    <Text style={{ fontSize: 11, color: '#9ca3af', flex: 1 }}>{hint}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+                <TouchableOpacity
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#ede9fe', borderWidth: 1, borderColor: '#c4b5fd' }}
+                  onPress={async () => {
+                    try {
+                      const DocumentPicker = require('expo-document-picker');
+                      const FileSystem = require('expo-file-system');
+                      const result = await DocumentPicker.getDocumentAsync({ type: ['text/csv', 'text/comma-separated-values', 'text/plain', 'application/csv'], copyToCacheDirectory: true });
+                      if (!result.canceled && result.assets && result.assets[0]) {
+                        const fileUri = result.assets[0].uri;
+                        const content = await FileSystem.readAsStringAsync(fileUri);
+                        setText(content);
+                      }
+                    } catch (e) {
+                      Alert.alert('Install Required', 'Run `npx expo install expo-document-picker expo-file-system` in your project to enable file uploads. For now, paste your CSV content directly.');
                     }
-                  } catch (e) {
-                    Alert.alert('Install Required', 'Run `npx expo install expo-document-picker expo-file-system` in your project to enable file uploads. For now, paste your CSV content directly.');
-                  }
-                }}
-              >
-                <Ionicons name="document-outline" size={16} color="#6366f1" />
-                <Text style={{ fontSize: 13, fontWeight: '700', color: '#6366f1' }}>Choose CSV File</Text>
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' }}
-                onPress={async () => {
-                  try {
-                    const { Clipboard } = require('react-native');
-                    const content = await Clipboard.getString();
-                    if (content) setText(content);
-                  } catch (e) {
-                    // Fallback: user can paste manually
-                  }
-                }}
-              >
-                <Ionicons name="clipboard-outline" size={16} color="#6b7280" />
-                <Text style={{ fontSize: 13, fontWeight: '600', color: '#6b7280' }}>Paste from Clipboard</Text>
-              </TouchableOpacity>
-            </View>
+                  }}
+                >
+                  <Ionicons name="document-outline" size={16} color="#6366f1" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#6366f1' }}>Choose CSV File</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: 10, backgroundColor: '#f3f4f6', borderWidth: 1, borderColor: '#e5e7eb' }}
+                  onPress={() => setText(CSV_TEMPLATE_HEADER + '\n')}
+                >
+                  <Ionicons name="copy-outline" size={16} color="#6b7280" />
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#6b7280' }}>Insert Header Row</Text>
+                </TouchableOpacity>
+              </View>
+            </>
           )}
 
           <TextInput
             style={[styles.fieldInput, { height: 180 }]}
-            placeholder={mode === 'csv' ? 'Clean House, pending, weekly, low, 0, 0, 0, chores-home, sweep-mop\nStudy Math, active, 0, high, 04/15/2026, 2:00 PM, 0, school, 0' : 'Paste content here...'}
+            placeholder={mode === 'csv'
+              ? 'Title,Status,Frequency,Energy,Due Date,Due Time,Est. Minutes,Tags,Subtasks\nClean House,pending,weekly,low,0,0,0,chores-home,sweep-mop\nStudy Math,active,0,high,04/15/2026,2:00 PM,30,school,0'
+              : 'Paste content here...'}
             placeholderTextColor="#9ca3af"
             value={text}
             onChangeText={setText}
@@ -1862,6 +2126,8 @@ export default function TasksScreen() {
   const [filterTags, setFilterTags] = useState([]);
   const [filterMode, setFilterMode] = useState('OR'); // 'AND' | 'OR'
   const [filterStatus, setFilterStatus] = useState([]); // Status filter chips
+  const [filterMissedStreak, setFilterMissedStreak] = useState(false);
+  const [filterStreak, setFilterStreak] = useState(false);
   const [flippedCards, setFlippedCards] = useState(new Set());
   const listRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -1945,7 +2211,7 @@ export default function TasksScreen() {
         status: 'missed',
         streak: calculateTaskStreak(updatedHistory),
         statusHistory: updatedHistory,
-        ...(nextDue ? { nextDueDate: nextDue } : {}),
+        ...(nextDue ? { dueDate: nextDue } : {}),
       } : t));
       logTaskEvent(task, 'missed');
     }
@@ -2027,10 +2293,22 @@ export default function TasksScreen() {
     }
   }
 
-  // Sort by status order
-  filtered = [...filtered].sort((a, b) => {
-    return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
-  });
+  if (filterMissedStreak) {
+    filtered = filtered
+      .map(t => ({ t, ms: calculateTaskMissedStreak(t.statusHistory) }))
+      .filter(({ ms }) => ms >= 2)
+      .sort((a, b) => b.ms - a.ms)
+      .map(({ t }) => t);
+  } else if (filterStreak) {
+    filtered = filtered
+      .filter(t => (t.streak || 0) >= 2)
+      .sort((a, b) => (b.streak || 0) - (a.streak || 0));
+  } else {
+    // Sort by status order
+    filtered = [...filtered].sort((a, b) => {
+      return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
+    });
+  }
 
   // allFlipped derived after filtered is ready
   const allFlipped = filtered.length > 0 && filtered.every(t => flippedCards.has(t.id));
@@ -2123,7 +2401,7 @@ export default function TasksScreen() {
                   status: 'missed',
                   streak: calculateTaskStreak(updatedHistory),
                   statusHistory: updatedHistory,
-                  ...(nextDue ? { nextDueDate: nextDue } : {}),
+                  ...(nextDue ? { dueDate: nextDue } : {}),
                 } : t));
               }
           }}
@@ -2156,7 +2434,18 @@ export default function TasksScreen() {
 
   function handleTaskCompleting(id, reward) {
     incrementActiveStreak();
-    
+
+    // History completions: just show the roll, don't change task status/dates
+    if (completingTask?._isHistoryCompletion) {
+      setCompletingTask(null);
+      if (rewardQueue.length > 0) {
+        const [next, ...rest] = rewardQueue;
+        setRewardQueue(rest);
+        setTimeout(() => setCompletingTask(next), 400);
+      }
+      return;
+    }
+
     if (completingTask?.isSubtaskRoll) {
       setCompletingTask(null);
       if (rewardQueue.length > 0) {
@@ -2175,7 +2464,6 @@ export default function TasksScreen() {
         let nextData = {};
         if (t.frequency) {
           const formatted = calcNextDueDate(t);
-          nextData.nextDueDate = formatted;
           nextData.dueDate = formatted;
           nextData.status = 'upcoming';
           nextData.gainedReward = null;
@@ -2335,7 +2623,8 @@ export default function TasksScreen() {
           const allIds = [...sels[1], ...sels[2], ...sels[3]];
           setTasks(prev => prev.map(t => {
             if (forceClear) return { ...t, isPriority: false };
-            return allIds.includes(t.id) ? { ...t, isPriority: true } : t;
+            // Always replace old priorities with the new selection
+            return { ...t, isPriority: allIds.includes(t.id) };
           }));
         }} />
         
@@ -2405,10 +2694,10 @@ export default function TasksScreen() {
       {/* ── Status filter chips ── */}
       <View style={{ height: 36, marginBottom: 4 }}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, alignItems: 'center', height: 36 }}>
-          {filterStatus.length > 0 && (
+          {(filterStatus.length > 0 || filterMissedStreak || filterStreak) && (
             <TouchableOpacity
               style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' }}
-              onPress={() => setFilterStatus([])}
+              onPress={() => { setFilterStatus([]); setFilterMissedStreak(false); setFilterStreak(false); }}
             >
               <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700' }}>Clear</Text>
             </TouchableOpacity>
@@ -2427,7 +2716,50 @@ export default function TasksScreen() {
               </TouchableOpacity>
             );
           })()}
-          {['first_step', 'active', 'pending', 'missed', 'upcoming', 'done'].map(s => {
+          {['first_step', 'active', 'pending', 'missed'].map(s => {
+            const cfg = STATUSES[s];
+            const active = filterStatus.includes(s);
+            const count = tasks.filter(t => t.status === s).length;
+            if (count === 0) return null;
+            return (
+              <TouchableOpacity
+                key={s}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: cfg.color + '40', backgroundColor: active ? cfg.color : '#fff' }}
+                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== s) : [...prev, s])}
+              >
+                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: active ? '#fff' : cfg.color }} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : cfg.color + '80' }}>{count}</Text>
+              </TouchableOpacity>
+            );
+          })}
+          {(() => {
+            const msCount = tasks.filter(t => calculateTaskMissedStreak(t.statusHistory) >= 2).length;
+            if (msCount === 0) return null;
+            return (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: filterMissedStreak ? '#1f2937' : '#9ca3af40', backgroundColor: filterMissedStreak ? '#1f2937' : '#fff' }}
+                onPress={() => setFilterMissedStreak(v => !v)}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: filterMissedStreak ? '#f9fafb' : '#374151' }}>💀 Missed Streak</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: filterMissedStreak ? 'rgba(249,250,251,0.7)' : '#37415180' }}>{msCount}</Text>
+              </TouchableOpacity>
+            );
+          })()}
+          {(() => {
+            const streakCount = tasks.filter(t => (t.streak || 0) >= 2).length;
+            if (streakCount === 0) return null;
+            return (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: filterStreak ? '#ef4444' : '#ef444440', backgroundColor: filterStreak ? '#ef4444' : '#fff' }}
+                onPress={() => setFilterStreak(v => !v)}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: filterStreak ? '#fff' : '#ef4444' }}>🔥 Streak</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: filterStreak ? 'rgba(255,255,255,0.7)' : '#ef444480' }}>{streakCount}</Text>
+              </TouchableOpacity>
+            );
+          })()}
+          {['upcoming', 'done'].map(s => {
             const cfg = STATUSES[s];
             const active = filterStatus.includes(s);
             const count = s === 'done' ? stats.today : tasks.filter(t => t.status === s).length;
@@ -2587,20 +2919,24 @@ export default function TasksScreen() {
       {view === 'list' && (
         filtered.length === 0
           ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
-          : sections.map(section => (
-              <View key={section.title}>
-                <SectionHeader
-                  title={section.title}
-                  status={section.status}
-                  count={section.fullCount}
-                  collapsed={!!collapsedSections[section.title]}
-                  onToggle={(t) => setCollapsedSections(prev => ({ ...prev, [t]: !prev[t] }))}
-                />
-                {!collapsedSections[section.title] && section.data.map((item, i) => (
-                  <TaskRow key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} />
-                ))}
-              </View>
-            ))
+          : (filterMissedStreak || filterStreak)
+            ? filtered.map((item, i) => (
+                <TaskRow key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} onDeprioritize={(id) => setTasks(prev => prev.map(t => t.id === id ? { ...t, isPriority: false } : t))} />
+              ))
+            : sections.map(section => (
+                <View key={section.title}>
+                  <SectionHeader
+                    title={section.title}
+                    status={section.status}
+                    count={section.fullCount}
+                    collapsed={!!collapsedSections[section.title]}
+                    onToggle={(t) => setCollapsedSections(prev => ({ ...prev, [t]: !prev[t] }))}
+                  />
+                  {!collapsedSections[section.title] && section.data.map((item, i) => (
+                    <TaskRow key={String(item.id) + '-' + i} task={item} onConfirmStatus={confirmStatus} onOpen={setEditingTask} onHistory={t => setHistoryTask(t.id)} onDeprioritize={(id) => setTasks(prev => prev.map(t => t.id === id ? { ...t, isPriority: false } : t))} />
+                  ))}
+                </View>
+              ))
       )}
 
       {/* ── Card view ── */}
@@ -2645,7 +2981,7 @@ export default function TasksScreen() {
         visible={!!completingTask}
         task={completingTask}
         onClose={() => {
-          // Even if user dismisses without rolling, still log the event and set nextDueDate
+          // Even if user dismisses without rolling, still log the event and advance dueDate
           if (completingTask) handleTaskCompleting(completingTask.id, null);
         }}
         onComplete={handleTaskCompleting}
@@ -2670,6 +3006,7 @@ export default function TasksScreen() {
                   ...taskRef,
                   intent: 'done',
                   parentTaskId: null,
+                  _isHistoryCompletion: true,
                 }));
                 setCompletingTask(items[0]);
                 if (items.length > 1) setRewardQueue(items.slice(1));
@@ -2690,6 +3027,12 @@ export default function TasksScreen() {
                 const h = { ...(t.statusHistory || {}) };
                 if (status === null) { delete h[date]; } else { h[date] = status; }
                 return { ...t, statusHistory: h };
+              }));
+            }}
+            onFillRange={(taskId, entries) => {
+              setTasks(prev => prev.map(t => {
+                if (t.id !== taskId) return t;
+                return { ...t, statusHistory: { ...(t.statusHistory || {}), ...entries } };
               }));
             }}
           />

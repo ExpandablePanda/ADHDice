@@ -2,13 +2,11 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
   KeyboardAvoidingView, Platform, ScrollView,
-  ActivityIndicator, Alert, Image, Dimensions
+  ActivityIndicator, Alert, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProfile } from '../lib/ProfileContext';
 import { Ionicons } from '@expo/vector-icons';
-
-const { width } = Dimensions.get('window');
 
 export default function AuthScreen() {
   const { login, signUp } = useProfile();
@@ -50,8 +48,7 @@ export default function AuthScreen() {
               source={require('../../assets/logo.png')}
               style={styles.logo}
             />
-            <Text style={styles.welcomeTitle}>ADHDice</Text>
-            <Text style={styles.tagline}>Sync your focus, conquer your day</Text>
+            <Text style={styles.tagline}>Turn your to-do list into a dice and card game!</Text>
           </View>
 
           <View style={styles.card}>
@@ -131,8 +128,8 @@ const styles = StyleSheet.create({
     marginBottom: 40,
   },
   logo: {
-    width: width * 0.6,
-    height: 60,
+    width: 300,
+    height: 150,
     resizeMode: 'contain',
     marginBottom: 8,
   },
@@ -140,13 +137,7 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#6b7280',
     fontWeight: '500',
-  },
-  welcomeTitle: {
-    fontSize: 28,
-    fontWeight: '900',
-    color: '#111827',
-    marginBottom: 4,
-    letterSpacing: 1,
+    textAlign: 'center',
   },
   card: {
     backgroundColor: '#fff',

@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 
 import TasksScreen from './src/screens/TasksScreen';
+import RoutinesScreen from './src/screens/RoutinesScreen';
 import FocusScreen from './src/screens/FocusScreen';
 import DiceScreen from './src/screens/DiceScreen';
 import GamesScreen from './src/screens/GamesScreen';
@@ -16,6 +17,7 @@ import { TasksProvider } from './src/lib/TasksContext';
 import { EconomyProvider, useEconomy } from './src/lib/EconomyContext';
 import { NotesProvider } from './src/lib/NotesContext';
 import { FocusProvider } from './src/lib/FocusContext';
+import { RoutinesProvider } from './src/lib/RoutinesContext';
 import React from 'react';
 import { View, Text, StyleSheet, Image, Platform } from 'react-native';
 
@@ -24,13 +26,14 @@ import { ProfileProvider, useProfile } from './src/lib/ProfileContext';
 const Tab = createBottomTabNavigator();
 
 const tabs = [
-  { name: 'Tasks', component: TasksScreen, icon: 'checkbox-outline' },
-  { name: 'Focus', component: FocusScreen, icon: 'timer-outline' },
-  { name: 'Roll Rewards', component: DiceScreen, icon: 'dice-outline' },
-  { name: 'Games', component: GamesScreen, icon: 'game-controller-outline' },
-  { name: 'Stats', component: StatsScreen, icon: 'bar-chart-outline' },
-  { name: 'Notes', component: NotesScreen, icon: 'document-text-outline' },
-  { name: 'Settings', component: SettingsScreen, icon: 'settings-outline' },
+  { name: 'Tasks',        component: TasksScreen,    icon: 'checkbox-outline' },
+  { name: 'Routines',     component: RoutinesScreen,  icon: 'list-circle-outline' },
+  { name: 'Focus',        component: FocusScreen,     icon: 'timer-outline' },
+  { name: 'Roll Rewards', component: DiceScreen,      icon: 'dice-outline' },
+  { name: 'Games',        component: GamesScreen,     icon: 'game-controller-outline' },
+  { name: 'Stats',        component: StatsScreen,     icon: 'bar-chart-outline' },
+  { name: 'Notes',        component: NotesScreen,     icon: 'document-text-outline' },
+  { name: 'Settings',     component: SettingsScreen,  icon: 'settings-outline' },
 ];
 
 function RPGHeaderRight() {
@@ -58,7 +61,7 @@ function RPGHeaderRight() {
   );
 }
 
-const APP_VERSION = 'V.02.10';
+const APP_VERSION = 'V.03.04';
 
 function LogoHeaderLeft() {
   return (
@@ -149,11 +152,13 @@ function RootApp() {
     <ThemeProvider>
       <EconomyProvider>
         <TasksProvider>
-          <NotesProvider>
-            <FocusProvider>
-              <MainApp />
-            </FocusProvider>
-          </NotesProvider>
+          <RoutinesProvider>
+            <NotesProvider>
+              <FocusProvider>
+                <MainApp />
+              </FocusProvider>
+            </NotesProvider>
+          </RoutinesProvider>
         </TasksProvider>
       </EconomyProvider>
     </ThemeProvider>
