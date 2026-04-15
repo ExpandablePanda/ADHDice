@@ -319,9 +319,23 @@ function NoteEditorModal({ visible, note, onSave, onDelete, onConvert, onClose }
             onChangeText={setTitle}
             multiline
           />
-          
+          <View style={styles.editorTagRow}>
+            {tags.map(t => (
+              <TouchableOpacity key={t} style={styles.tagChipActive} onPress={() => removeTag(t)}>
+                <Text style={{ color: '#fff', fontSize: 11 }}>#{t}</Text>
+                <Ionicons name="close-circle" size={12} color="#fff" style={{ marginLeft: 4 }} />
+              </TouchableOpacity>
+            ))}
+            <TextInput
+              style={styles.tagInput}
+              placeholder="+ add tag"
+              placeholderTextColor="#9ca3af"
+              value={tagInput}
+              onChangeText={setTagInput}
+              onSubmitEditing={handleAddTag}
+              autoCapitalize="none"
+            />
           </View>
-          
           <View style={{ marginBottom: 20 }}>
             <Text style={[styles.fieldLabel, { color: colors.textMuted, fontSize: 11, marginBottom: 6, textTransform: 'uppercase' }]}>Link to Task</Text>
             <TouchableOpacity 

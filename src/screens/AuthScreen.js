@@ -163,8 +163,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   inputGroup: {
-    gap: 16,
-    marginBottom: 24,
+    marginBottom: 8,
   },
   inputWrapper: {
     flexDirection: 'row',
@@ -173,6 +172,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 16,
     height: 56,
+    marginBottom: 16,
   },
   inputIcon: {
     marginRight: 12,

@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTasks } from '../lib/TasksContext';
 import { useTheme } from '../lib/ThemeContext';
-import { useProfile } from './src/lib/ProfileContext';
-import { useSettings } from './src/lib/SettingsContext';
+import { useProfile } from '../lib/ProfileContext';
+import { useSettings } from '../lib/SettingsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScrollToTop from '../components/ScrollToTop';
 

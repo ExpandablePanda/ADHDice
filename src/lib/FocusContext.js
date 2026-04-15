@@ -69,11 +69,18 @@ export function FocusProvider({ children }) {
       if (storedTimer) {
         try { 
           const parsed = JSON.parse(storedTimer);
-          // Migrate old single-timer state if needed
-          if (parsed && parsed.category && parsed.isRunning !== undefined) {
-             setTimerState({ [parsed.category]: { secondsAtStart: parsed.secondsAtStart, startTime: parsed.startTime } });
+          // Migrate old single-timer state if detected (object with 'category' key)
+          if (parsed && typeof parsed === 'object' && parsed.category && !parsed[parsed.category]) {
+             setTimerState({ 
+               [parsed.category]: { 
+                 secondsAtStart: parsed.secondsAtStart || 0, 
+                 startTime: parsed.startTime || null 
+               } 
+             });
+          } else if (parsed && typeof parsed === 'object') {
+             setTimerState(parsed); 
           } else {
-             setTimerState(parsed || {}); 
+             setTimerState({});
           }
         } catch(e) {}
       }

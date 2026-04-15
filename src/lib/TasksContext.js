@@ -109,17 +109,25 @@ export function TasksProvider({ children }) {
     async function loadData() {
       setLoaded(false);
       
-      // A. Load from Local Storage immediately
-      const storedTasks = await AsyncStorage.getItem(`${storagePrefix}tasks`);
-      const storedHistory = await AsyncStorage.getItem(`${storagePrefix}task_history`);
-      
       let initialTasks = [];
       let initialHistory = [];
       
-      if (storedTasks) initialTasks = JSON.parse(storedTasks);
-      if (storedHistory) initialHistory = JSON.parse(storedHistory);
+      try {
+        const storedTasks = await AsyncStorage.getItem(`${storagePrefix}tasks`);
+        const storedHistory = await AsyncStorage.getItem(`${storagePrefix}task_history`);
+        
+        if (storedTasks) {
+          const parsed = JSON.parse(storedTasks);
+          if (Array.isArray(parsed)) initialTasks = parsed.filter(Boolean);
+        }
+        if (storedHistory) {
+          const parsed = JSON.parse(storedHistory);
+          if (Array.isArray(parsed)) initialHistory = parsed.filter(Boolean);
+        }
+      } catch (e) {
+        console.error('Failed to load local tasks', e);
+      }
       
-      // Set local state quickly for better UX
       setTasks(initialTasks);
       setTaskHistory(initialHistory);
 

@@ -23,6 +23,65 @@ import { View, Text, StyleSheet, Image, Platform } from 'react-native';
 
 import { ProfileProvider, useProfile } from './src/lib/ProfileContext';
 import { SettingsProvider } from './src/lib/SettingsContext';
+import AuthScreen from './src/screens/AuthScreen';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// ── Error Boundary for Recovery ─────────────────────────────────────────────
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+
+  handleReset = async () => {
+    try {
+      if (Platform.OS === 'web') {
+        localStorage.clear();
+      }
+      await AsyncStorage.clear();
+      if (typeof window !== 'undefined') window.location.reload();
+    } catch (e) {
+      alert("Failed to reset data. Please clear your browser cache manually.");
+    }
+  };
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaProvider>
+          <View style={{ flex: 1, backgroundColor: '#f9fafb', alignItems: 'center', justifyContent: 'center', padding: 24 }}>
+            <Ionicons name="alert-circle" size={64} color="#ef4444" />
+            <Text style={{ fontSize: 24, fontWeight: '800', color: '#111827', marginTop: 16, textAlign: 'center' }}>Something went wrong</Text>
+            <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 8, textAlign: 'center', lineHeight: 20 }}>
+              The app encountered a critical error during initialization. This is usually caused by corrupted local data.
+            </Text>
+            <View style={{ backgroundColor: '#fee2e2', padding: 12, borderRadius: 12, marginTop: 24, width: '100%' }}>
+              <Text style={{ fontSize: 12, color: '#b91c1c', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' }}>
+                {this.state.error?.toString()}
+              </Text>
+            </View>
+            <TouchableOpacity 
+              style={{ backgroundColor: '#6366f1', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 14, marginTop: 32 }}
+              onPress={this.handleReset}
+            >
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>Reset App Data & Reload</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaProvider>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 const Tab = createBottomTabNavigator();
 
@@ -87,7 +146,13 @@ function MainApp() {
     if (Platform.OS === 'web') {
       try {
         const saved = localStorage.getItem(NAV_STATE_KEY);
-        if (saved) setInitialNavState(JSON.parse(saved));
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Simple validation: ensure it's an object with a routes array
+          if (parsed && typeof parsed === 'object' && Array.isArray(parsed.routes)) {
+            setInitialNavState(parsed);
+          }
+        }
       } catch (_) {}
 
       // When Safari restores from BFCache (e.g. switching back from a full-screen Space),
@@ -140,7 +205,6 @@ function MainApp() {
   );
 }
 
-import AuthScreen from './src/screens/AuthScreen';
 
 function RootApp() {
   const { user } = useProfile();
@@ -170,11 +234,13 @@ function RootApp() {
 
 export default function App() {
   return (
-    <SafeAreaProvider>
-      <ProfileProvider>
-        <RootApp />
-      </ProfileProvider>
-    </SafeAreaProvider>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <ProfileProvider>
+          <RootApp />
+        </ProfileProvider>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 
@@ -183,12 +249,12 @@ const headerStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginRight: 16,
-    gap: 12,
   },
   lvlBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 8,
+    marginRight: 12,
   },
   lvlText: {
     color: '#fff',
@@ -197,6 +263,7 @@ const headerStyles = StyleSheet.create({
   },
   xpContainer: {
     width: 60,
+    marginRight: 12,
   },
   xpTextRow: {
     alignItems: 'flex-end',

@@ -56,22 +56,24 @@ function fmtDateShort(date) {
 
 // ── Date helpers ─────────────────────────────────────────────────────────────
 function isSameDay(d1, d2) {
-  return d1.getFullYear() === d2.getFullYear() &&
-    d1.getMonth() === d2.getMonth() &&
-    d1.getDate() === d2.getDate();
+  const a = new Date(d1), b = new Date(d2);
+  return a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
 }
 
 function getWeekStart(date) {
   const d = new Date(date);
   d.setHours(0, 0, 0, 0);
-  const day = d.getDay(); // 0 (Sun) to 6 (Sat)
+  const day = d.getDay();
   const diff = (day === 0 ? -6 : 1) - day;
   d.setDate(d.getDate() + diff);
   return d;
 }
 
 function getMonthStart(date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  const d = new Date(date);
+  return new Date(d.getFullYear(), d.getMonth(), 1);
 }
 
 // ── Generate sample data for demo ───────────────────────────────────────────

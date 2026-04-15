@@ -44,9 +44,16 @@ export function EconomyProvider({ children }) {
   useEffect(() => {
     async function loadData() {
       setLoaded(false);
-      const stored = await AsyncStorage.getItem(`${storagePrefix}economy`);
-      if (stored) {
-        try { setEconomy(JSON.parse(stored)); } catch (e) {}
+      try {
+        const stored = await AsyncStorage.getItem(`${storagePrefix}economy`);
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (parsed && typeof parsed === 'object') {
+            setEconomy({ ...INITIAL_ECONOMY, ...parsed });
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load local economy', e);
       }
 
       if (user) {
