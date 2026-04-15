@@ -2,16 +2,30 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProfile } from './ProfileContext';
+import { useSettings } from './SettingsContext';
 import { supabase } from './supabase';
+
+export const STATUSES = {
+  first_step:  { label: '1st Step',    color: '#8b5cf6', icon: 'footsteps-outline', next: 'active' },
+  upcoming:    { label: 'Upcoming',    color: '#64748b', icon: 'calendar-outline', next: 'pending' },
+  pending:     { label: 'Pending',     color: '#f59e0b', icon: 'time-outline', next: 'active' },
+  active:      { label: 'In Progress', color: '#eab308', icon: 'play-outline', next: 'did_my_best' },
+  did_my_best: { label: 'Did My Best', color: '#0ea5e9', icon: 'star-outline', next: 'missed' },
+  missed:      { label: 'Missed',      color: '#ef4444', icon: 'close-circle-outline', next: 'done' },
+  done:        { label: 'Done',        color: '#10b981', icon: 'checkmark-circle-outline', next: 'upcoming' },
+};
+
+export const STATUS_ORDER = ['first_step', 'active', 'pending', 'missed', 'upcoming', 'done', 'did_my_best'];
 
 const TasksContext = createContext();
 
 export function getLocalDateKey(date = new Date()) {
   const d = new Date(date);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return d.toISOString().split('T')[0];
+}
+
+export function isSameDay(d1, d2) {
+  return getLocalDateKey(d1) === getLocalDateKey(d2);
 }
 
 export function calculateTaskMissedStreak(history = {}) {
@@ -23,11 +37,12 @@ export function calculateTaskMissedStreak(history = {}) {
     d.setDate(d.getDate() - i);
     const key = getLocalDateKey(d);
     const s = history[key];
+    
+    // If today is not marked yet, we don't count it for MISSED streak yet
+    if (i === 0 && !s) continue;
+
     if (s === 'missed') {
       streak++;
-    } else if (i === 0) {
-      if (s === 'done' || s === 'did_my_best') break; 
-      continue; // today might not be recorded yet
     } else {
       break;
     }
@@ -39,16 +54,19 @@ export function calculateTaskStreak(history = {}) {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   let streak = 0;
-  for (let i = 0; i <= 365; i++) { // look back up to a year
+  for (let i = 0; i <= 365; i++) {
     const d = new Date(today);
     d.setDate(d.getDate() - i);
     const key = getLocalDateKey(d);
     const s = history[key];
+    
     if (s === 'done' || s === 'did_my_best') {
       streak++;
     } else if (i === 0) {
-      continue; // today might not be done yet
+      // today might not be done yet, skip it but DON'T break
+      continue;
     } else {
+      // Any other status (missed, pending, etc) on a past day breaks the streak
       break;
     }
   }
@@ -226,6 +244,65 @@ export function TasksProvider({ children }) {
       if (Platform.OS === 'web') window.removeEventListener('pagehide', handleUnload);
     };
   }, [tasks, taskHistory, loaded, user, storagePrefix]);
+
+  // 3. Day-Start Transition Logic
+  const { dayStartTime } = useSettings();
+  useEffect(() => {
+    if (!loaded) return;
+
+    function processTransitions() {
+      const now = new Date();
+      const hour = now.getHours();
+      const todayKey = getLocalDateKey(now);
+      
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayKey = getLocalDateKey(yesterday);
+
+      let changed = false;
+      const nextTasks = tasks.map(t => {
+        let newTask = { ...t };
+        const hist = t.statusHistory || {};
+        
+        // A. Catch missed tasks from yesterday
+        // If it was due yesterday (implied by having a frequency or a dueDate of yesterday) 
+        // and its history for yesterday is empty, we mark it missed.
+        // For simplicity: if it's currently not 'done' OR its status is 'missed' for today, 
+        // but yesterday was never marked.
+        if (!hist[yesterdayKey]) {
+          // If task should have been active yesterday (e.g. daily frequency)
+          if (t.frequency === 'daily' || (t.dueDate && t.dueDate <= yesterdayKey)) {
+             hist[yesterdayKey] = 'missed';
+             newTask.statusHistory = hist;
+             changed = true;
+          }
+        }
+
+        // B. 6 AM (or dayStartTime) transition for today
+        if (hour >= dayStartTime) {
+          if (newTask.status === 'upcoming') {
+            // Check if it's due today
+            const isDueToday = !t.dueDate || t.dueDate <= todayKey;
+            if (isDueToday) {
+               newTask.status = 'pending';
+               changed = true;
+            }
+          }
+        }
+        
+        return newTask;
+      });
+
+      if (changed) {
+        setTasks(nextTasks);
+      }
+    }
+
+    processTransitions();
+    // Check every hour
+    const interval = setInterval(processTransitions, 1000 * 60 * 60);
+    return () => clearInterval(interval);
+  }, [loaded, tasks, dayStartTime]);
 
   const logTaskEvent = (task, status) => {
     const event = {

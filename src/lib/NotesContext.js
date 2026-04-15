@@ -119,12 +119,13 @@ export function NotesProvider({ children }) {
     };
   }, [notes, loaded, user, storagePrefix]);
 
-  const addNote = (title, content, tags = []) => {
+  const addNote = (title, content, tags = [], taskId = null) => {
     const newNote = {
       id: Date.now().toString(),
       title,
       content,
       tags,
+      taskId,
       isPinned: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),

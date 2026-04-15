@@ -207,14 +207,17 @@ function CategoryBreakdown({ entries, period, categories = DEFAULT_CATEGORIES, g
   return (
     <View style={styles.breakdownList}>
       {sorted.map(cat => {
-        const pct = totalMins > 0 ? (cat.minutes / totalMins) * 100 : 0;
-        
         // Calculate goal display for today
         const catGoals = goals[cat.key];
         let displayGoal = 0;
         if (period === 'today' && catGoals) {
           displayGoal = catGoals.daily > 0 ? catGoals.daily : (catGoals.weekly > 0 ? Math.round(catGoals.weekly / 7) : 0);
         }
+
+        // Percentage is relative to goal if goal exists, otherwise relative to total
+        const pct = displayGoal > 0 
+           ? Math.min((cat.minutes / displayGoal) * 100, 100)
+           : (totalMins > 0 ? (cat.minutes / totalMins) * 100 : 0);
 
         return (
           <View key={cat.key} style={styles.breakdownRow}>
@@ -1077,15 +1080,17 @@ function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function FocusScreen() {
-  const {
+  const { 
     entries, addEntry, deleteEntry, updateEntry,
     categories, setCategories,
     goals, setGoals,
     timerState, setTimerState,
+    startTimer, stopTimer, resetTimer 
   } = useFocus();
   const { addReward } = useEconomy();
-
-  const [timerSeconds, setTimerSeconds] = useState(0);
+  
+  const [timerSeconds, setTimerSeconds] = useState(0); // For display only
+  const [pendingLog, setPendingLog] = useState(null); // { category, seconds }
   const [editEntry, setEditEntry]       = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
@@ -1097,97 +1102,57 @@ export default function FocusScreen() {
   const scrollRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
 
-  // Sync display with shared timerState
+  // Re-render every second to update all active timers
+  const [, setTick] = useState(0);
   useEffect(() => {
-    if (timerState.isRunning && timerState.startTime) {
-      const elapsedCloud = timerState.secondsAtStart;
-      const timeSinceStart = (Date.now() - new Date(timerState.startTime).getTime()) / 1000;
-      setTimerSeconds(Math.floor(elapsedCloud + timeSinceStart));
-    } else {
-      setTimerSeconds(timerState.secondsAtStart || 0);
-    }
-  }, [timerState.isRunning, timerState.startTime, timerState.secondsAtStart]);
+    const hasActive = Object.values(timerState).some(s => s.startTime);
+    if (!hasActive) return;
+    
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [timerState]);
 
-  const handleScroll = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
-    setShowScrollTop(y > 300);
+  const getElapsed = (catKey) => {
+    const state = timerState[catKey];
+    if (!state) return 0;
+    let seconds = state.secondsAtStart || 0;
+    if (state.startTime) {
+      seconds += Math.floor((new Date() - new Date(state.startTime)) / 1000);
+    }
+    return Math.max(0, seconds);
   };
 
-  // Timer display ticker
-  useEffect(() => {
-    if (timerState.isRunning) {
-      intervalRef.current = setInterval(() => {
-        setTimerSeconds(s => s + 1);
-      }, 1000);
-    } else {
-      clearInterval(intervalRef.current);
-    }
-    return () => clearInterval(intervalRef.current);
-  }, [timerState.isRunning]);
-
-  function startTimer() {
-    setTimerState(prev => ({ 
-      ...prev, 
-      isRunning: true, 
-      startTime: new Date().toISOString(),
-      secondsAtStart: timerSeconds 
-    }));
-  }
-
-  function pauseTimer() {
-    setTimerState(prev => ({ 
-      ...prev, 
-      isRunning: false, 
-      startTime: null,
-      secondsAtStart: timerSeconds 
-    }));
-  }
-
-  function stopAndLog() {
-    const minutes = Math.max(1, Math.round(timerSeconds / 60));
-    
-    // Create the entry if long enough
-    if (timerSeconds >= 10) {
-      const newEntry = {
-        id: String(Date.now()),
-        category: timerState.category,
-        minutes,
-        date: new Date(),
-        note: '',
-      };
-      addEntry(newEntry);
-      const basePoints = Math.max(1, Math.floor(minutes * 0.5));
-      if (basePoints > 0) {
-        setPendingFocusReward({ minutes, basePoints });
-      } else {
-        Alert.alert('Time Logged!', `${fmtDuration(minutes)} of ${categories.find(c => c.key === timerState.category)?.label || 'Focus'} logged.`);
+  function handleTimerClick(cat) {
+    const state = timerState[cat.key];
+    if (state?.startTime) {
+      const finalSecs = stopTimer(cat.key);
+      const minutes = Math.floor(finalSecs / 60);
+      if (minutes >= 1) {
+        setPendingLog({ category: cat.key, seconds: finalSecs });
       }
+    } else {
+      startTimer(cat.key);
     }
-
-    // Reset shared state
-    setTimerState({ 
-      isRunning: false, 
-      category: timerState.category, 
-      secondsAtStart: 0, 
-      startTime: null 
-    });
-    setTimerSeconds(0);
   }
 
-  function resetTimer() {
-    const act = () => {
-      setTimerState({ isRunning: false, category: timerState.category, secondsAtStart: 0, startTime: null });
-      setTimerSeconds(0);
+  function handleLogConfirmed() {
+    if (!pendingLog) return;
+    const { category, seconds } = pendingLog;
+    const minutes = Math.floor(seconds / 60);
+    
+    const newEntry = {
+      id: String(Date.now()),
+      category,
+      minutes,
+      date: new Date(),
+      note: '',
     };
+    addEntry(newEntry);
+    resetTimer(category);
+    setPendingLog(null);
 
-    if (Platform.OS === 'web') {
-      if (window.confirm('Discard current timer?')) act();
-      return;
-    }
-    Alert.alert('Reset Timer', 'Discard current timer?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Reset', style: 'destructive', onPress: act },
-    ]);
+    const basePoints = Math.max(1, Math.floor(minutes * 0.5));
+    setPendingFocusReward({ minutes, basePoints });
   }
 
   function saveEntry(entry) {
@@ -1281,50 +1246,92 @@ export default function FocusScreen() {
         </View>
 
         <View style={styles.timerSection}>
-              <View style={[styles.timerDisplay, { borderColor: (categories.find(c => c.key === timerState.category) || categories[0])?.color || colors.primary }]}>
-                <Text style={[styles.timerText, { color: colors.textPrimary }]}>{fmtTimer(timerSeconds)}</Text>
-                <Text style={styles.timerSubText}>
-                  {(categories.find(c => c.key === timerState.category) || categories[0])?.label || 'Focusing'}
-                </Text>
-              </View>
-
-              <View style={styles.timerControls}>
-                <TouchableOpacity style={styles.timerBtn} onPress={resetTimer}>
-                  <Ionicons name="refresh-outline" size={24} color={colors.textSecondary} />
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  style={[styles.timerStart, { backgroundColor: (categories.find(c => c.key === timerState.category) || categories[0])?.color || colors.primary }]} 
-                  onPress={timerState.isRunning ? pauseTimer : startTimer}
-                >
-                  <Ionicons name={timerState.isRunning ? "pause" : "play"} size={32} color="#fff" />
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.timerBtn} onPress={stopAndLog}>
-                  <Ionicons name="stop-outline" size={24} color={colors.textSecondary} />
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catPicker} contentContainerStyle={{ paddingHorizontal: 20, gap: 8, alignItems: 'center' }}>
-                {categories.map(cat => (
-                  <TouchableOpacity 
-                    key={cat.key} 
-                    style={[styles.catChip, timerState.category === cat.key && { backgroundColor: cat.color + '20', borderColor: cat.color }]}
-                    onPress={() => setTimerState(prev => ({ ...prev, category: cat.key }))}
-                  >
-                    {cat.icon && cat.icon.includes('-') ? (
-                      <Ionicons name={cat.icon} size={14} color={timerState.category === cat.key ? cat.color : "#6b7280"} />
-                    ) : (
-                      <Text style={{ fontSize: 13 }}>{cat.icon}</Text>
+          <Text style={[styles.fieldLabel, { marginBottom: 12, paddingHorizontal: 20 }]}>Categories</Text>
+          <View style={{ gap: 12, paddingHorizontal: 20 }}>
+            {categories.map(cat => {
+              const state = timerState[cat.key];
+              const isRunning = !!state?.startTime;
+              const elapsed = getElapsed(cat.key);
+              
+              return (
+                <View key={cat.key} style={[styles.catRow, { borderColor: isRunning ? cat.color : colors.border }]}>
+                  <View style={[styles.catIconWrap, { backgroundColor: cat.color + '15' }]}>
+                    <Ionicons name={cat.icon} size={20} color={cat.color} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.catLabel}>{cat.label}</Text>
+                    {elapsed > 0 && (
+                      <Text style={[styles.catElapsed, isRunning && { color: cat.color }]}>
+                        {fmtTimer(elapsed)}
+                      </Text>
                     )}
-                    <Text style={[styles.catChipText, timerState.category === cat.key && { color: cat.color, fontWeight: '700' }]}>{cat.label}</Text>
-                  </TouchableOpacity>
-                ))}
-                <TouchableOpacity style={[styles.catChip, { paddingHorizontal: 10 }]} onPress={() => setShowCatModal(true)}>
-                  <Ionicons name="settings-outline" size={14} color="#6b7280" />
-                </TouchableOpacity>
-              </ScrollView>
+                  </View>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    {elapsed > 0 && (
+                      <TouchableOpacity 
+                        style={styles.resetTinyBtn} 
+                        onPress={() => {
+                          if (Platform.OS === 'web') {
+                            if (window.confirm('Discard this timer?')) resetTimer(cat.key);
+                          } else {
+                            Alert.alert('Reset', 'Discard this timer?', [
+                              { text: 'Cancel' },
+                              { text: 'Discard', style: 'destructive', onPress: () => resetTimer(cat.key) }
+                            ]);
+                          }
+                        }}
+                      >
+                        <Ionicons name="refresh" size={18} color="#9ca3af" />
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity 
+                      style={[styles.timerControlBtn, { backgroundColor: isRunning ? cat.color : colors.background, borderColor: isRunning ? cat.color : colors.border }]}
+                      onPress={() => handleTimerClick(cat)}
+                    >
+                      <Ionicons name={isRunning ? "pause" : "play"} size={20} color={isRunning ? "#fff" : cat.color} />
+                    </TouchableOpacity>
+
+                    {elapsed >= 60 && !isRunning && (
+                      <TouchableOpacity 
+                        style={[styles.logBtn, { backgroundColor: colors.primary }]}
+                        onPress={() => setPendingLog({ category: cat.key, seconds: elapsed })}
+                      >
+                        <Ionicons name="checkmark" size={20} color="#fff" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+          
+          <TouchableOpacity style={styles.editCatsBtn} onPress={() => setShowCatModal(true)}>
+            <Ionicons name="settings-outline" size={14} color="#6b7280" />
+            <Text style={{ fontSize: 13, color: '#6b7280', fontWeight: '600' }}>Manage Categories</Text>
+          </TouchableOpacity>
         </View>
+
+        {/* Log Confirmation Modal */}
+        {pendingLog && (
+          <Modal visible transparent animationType="fade">
+            <View style={styles.confirmOverlay}>
+              <View style={styles.confirmBox}>
+                <Text style={styles.confirmTitle}>Log Focus Time?</Text>
+                <Text style={styles.confirmText}>
+                  Log {fmtDuration(Math.floor(pendingLog.seconds / 60))} for {categories.find(c => c.key === pendingLog.category)?.label}?
+                </Text>
+                <View style={styles.confirmActions}>
+                  <TouchableOpacity style={styles.confirmCancel} onPress={() => setPendingLog(null)}>
+                    <Text style={styles.confirmCancelText}>Later</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.confirmLog} onPress={handleLogConfirmed}>
+                    <Text style={styles.confirmLogText}>Log & Reset</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+        )}
 
         {/* ── Add manual entry button ── */}
         <TouchableOpacity style={styles.addManualBtn} onPress={() => setShowAddModal(true)}>

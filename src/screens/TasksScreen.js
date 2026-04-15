@@ -9,9 +9,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
-import { useTasks, getLocalDateKey, calculateTaskStreak, calculateTaskMissedStreak } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey, calculateTaskStreak, calculateTaskMissedStreak, STATUSES, STATUS_ORDER } from '../lib/TasksContext';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
+import { useSettings } from '../lib/SettingsContext';
+import { useNotes } from '../lib/NotesContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import TaskResultModal from '../components/TaskResultModal';
 import CalendarModal from '../components/CalendarModal';
@@ -27,17 +29,7 @@ const WEB_CARD_BASE = SCREEN_W;
 const CARD_W   = (WEB_CARD_BASE - CARD_PAD * 2 - CARD_GAP * (numColumns - 1)) / numColumns;
 const CARD_H   = CARD_W * 1.4;  // standard playing card ratio (5:7)
 
-// ── Config ────────────────────────────────────────────────────────────────────
-const STATUSES = {
-  first_step: { label: '1st Step', color: '#8b5cf6', next: 'active' },
-  upcoming: { label: 'Upcoming', color: '#64748b', next: 'pending'  },
-  pending:  { label: 'Pending',  color: '#f59e0b', next: 'active'   },
-  active:   { label: 'In Progress', color: '#eab308', next: 'did_my_best'     },
-  did_my_best: { label: 'I Did All I Could', color: '#0ea5e9', next: 'missed' },
-  missed:   { label: 'Missed', color: '#ef4444', next: 'done' },
-  done:     { label: 'Done',     color: '#10b981', next: 'upcoming'  },
-};
-const STATUS_ORDER = ['first_step', 'active', 'pending', 'missed', 'upcoming', 'done', 'did_my_best'];
+
 
 const ENERGY = {
   low:    { label: 'Low',    color: '#10b981', bg: '#d1fae5' },
@@ -57,7 +49,7 @@ const newSubtask  = title => ({ id: String(nextSubtaskId++), title, status: 'pen
 const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
 
 // ── Frequency / next-due-date helper ─────────────────────────────────────────
-function calcNextDueDate(task) {
+function calcNextDueDate(task, dayStartTime = 6) {
   if (!task.frequency) return null;
   const useToday = task.frequency === 'DaysAfter' || task.weeklyMode === 'days_after';
   let base;
@@ -69,6 +61,10 @@ function calcNextDueDate(task) {
     
     // If the due date is in the past, catch up to today
     const today = new Date();
+    // If current time is < dayStartTime, "today" for task purposes is still yesterday
+    if (today.getHours() < dayStartTime) {
+      today.setDate(today.getDate() - 1);
+    }
     today.setHours(0,0,0,0);
     if (base < today) {
       base = today;
@@ -682,6 +678,9 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize }) {
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [openSubPicker, setOpenSubPicker] = useState(null); // subtask id with picker open
+  const { notes } = useNotes();
+
+  const linkedNotesCount = (notes || []).filter(n => n.taskId === task.id).length;
 
   const currentStatusKey = task.status || 'pending';
   const status      = STATUSES[currentStatusKey] || STATUSES.pending;
@@ -745,6 +744,12 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize }) {
             {total > 0 && <View style={styles.metaChip}><Ionicons name="checkbox-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{done}/{total}</Text></View>}
             {(task.streak && task.streak > 0) ? <View style={[styles.metaChip, { backgroundColor: '#fee2e2' }]}><Ionicons name="flame" size={10} color="#ef4444" /><Text style={[styles.metaChipText, { color: '#ef4444' }]}>{task.streak}</Text></View> : null}
             {(() => { const ms = calculateTaskMissedStreak(task.statusHistory); return ms > 0 ? <View style={[styles.metaChip, { backgroundColor: '#1f2937' }]}><Text style={[styles.metaChipText, { color: '#f9fafb' }]}>💀 {ms}</Text></View> : null; })()}
+            {linkedNotesCount > 0 && (
+              <View style={[styles.metaChip, { backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 0.5 }]}>
+                <Ionicons name="document-text-outline" size={10} color="#d97706" />
+                <Text style={[styles.metaChipText, { color: '#d97706' }]}>Notes ({linkedNotesCount})</Text>
+              </View>
+            )}
             {(task.tags || []).map((tag, i) => <View key={i} style={[styles.metaChip, { backgroundColor: '#ede9fe' }]}><Text style={[styles.metaChipText, { color: '#6366f1' }]}>{tag}</Text></View>)}
           </View>
         </View>
@@ -2050,6 +2055,7 @@ function FocusYourDay({ tasks, onComplete }) {
 
 export default function TasksScreen() {
   const { colors } = useTheme();
+  const { dayStartTime } = useSettings();
   const { tasks, setTasks, logTaskEvent, taskHistory, isSyncing } = useTasks();
   const [refreshing, setRefreshing] = useState(false);
 
@@ -2140,7 +2146,14 @@ export default function TasksScreen() {
   const CONFIRM_STATUSES = ['pending', 'active', 'first_step'];
 
   function checkMidnightConfirmation(currentTasks) {
-    const todayKey = getLocalDateKey();
+    const now = new Date();
+    // Use effective logic: if before dayStartTime, "today" for tasks is still yesterday
+    const effectiveNow = new Date(now);
+    if (now.getHours() < dayStartTime) {
+      effectiveNow.setDate(effectiveNow.getDate() - 1);
+    }
+    const todayKey = getLocalDateKey(effectiveNow);
+
     const unresolvedFromPriorDay = currentTasks.filter(t =>
       CONFIRM_STATUSES.includes(t.status) &&
       t.dueDate &&
@@ -2183,12 +2196,15 @@ export default function TasksScreen() {
     if (!task) return;
 
     if (choice === 'done') {
-      // Backdate completion to 11pm the previous day
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      yesterday.setHours(23, 0, 0, 0);
-      const yesterdayKey = getLocalDateKey(yesterday);
-      const completedAt = yesterday.toISOString();
+      // Backdate completion to the previous "effective" day
+      const completionDate = new Date();
+      // If we are confirming something from "yesterday", we actually want to log it for its dueDate
+      // or just "yesterday" relative to the current effective day.
+      // But simpler: just log it for yesterday relative to NOW if it's currently morning.
+      completionDate.setDate(completionDate.getDate() - 1);
+      
+      const yesterdayKey = getLocalDateKey(completionDate);
+      const completedAt = completionDate.toISOString();
       const updatedHistory = { ...(task.statusHistory || {}), [yesterdayKey]: 'done' };
       // Save the backdated history first, then trigger the roll flow
       setTasks(prev => prev.map(t => t.id === taskId ? {
@@ -2203,9 +2219,14 @@ export default function TasksScreen() {
       return;
     } else {
       incrementMissedStreak();
-      const todayKey = getLocalDateKey();
-      const updatedHistory = { ...(task.statusHistory || {}), [todayKey]: 'missed' };
-      const nextDue = calcNextDueDate(task);
+      const now = new Date();
+      // If it's 2am and I mark missed, I missed it for YESTERDAY
+      if (now.getHours() < dayStartTime) {
+        now.setDate(now.getDate() - 1);
+      }
+      const recordKey = getLocalDateKey(now);
+      const updatedHistory = { ...(task.statusHistory || {}), [recordKey]: 'missed' };
+      const nextDue = calcNextDueDate(task, dayStartTime);
       setTasks(prev => prev.map(t => t.id === taskId ? {
         ...t,
         status: 'missed',

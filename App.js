@@ -22,6 +22,7 @@ import React from 'react';
 import { View, Text, StyleSheet, Image, Platform } from 'react-native';
 
 import { ProfileProvider, useProfile } from './src/lib/ProfileContext';
+import { SettingsProvider } from './src/lib/SettingsContext';
 
 const Tab = createBottomTabNavigator();
 
@@ -150,17 +151,19 @@ function RootApp() {
 
   return (
     <ThemeProvider>
-      <EconomyProvider>
-        <TasksProvider>
-          <RoutinesProvider>
-            <NotesProvider>
-              <FocusProvider>
-                <MainApp />
-              </FocusProvider>
-            </NotesProvider>
-          </RoutinesProvider>
-        </TasksProvider>
-      </EconomyProvider>
+      <SettingsProvider>
+        <EconomyProvider>
+          <TasksProvider>
+            <RoutinesProvider>
+              <NotesProvider>
+                <FocusProvider>
+                  <MainApp />
+                </FocusProvider>
+              </NotesProvider>
+            </RoutinesProvider>
+          </TasksProvider>
+        </EconomyProvider>
+      </SettingsProvider>
     </ThemeProvider>
   );
 }

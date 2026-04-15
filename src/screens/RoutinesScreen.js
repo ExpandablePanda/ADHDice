@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoutines, getRoutineProgress, getRoutineStreak } from '../lib/RoutinesContext';
-import { useTasks } from '../lib/TasksContext';
+import { useTasks, STATUSES, STATUS_ORDER, getLocalDateKey } from '../lib/TasksContext';
 import { useTheme } from '../lib/ThemeContext';
 import ModalScreen from '../components/ModalScreen';
 
@@ -14,16 +14,7 @@ import ModalScreen from '../components/ModalScreen';
 const PALETTE = ['#6366f1','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899','#14b8a6','#84cc16'];
 const ICONS   = ['🎯','🏃','🧼','💊','💪','📚','🍎','💰','🎵','🧘','☀️','🌙','🧹','💻','✍️','🎮','🔥','⚡','🌿','🧠'];
 
-const STATUSES = {
-  pending:     { label: 'Pending',     color: '#94a3b8' },
-  active:      { label: 'In Progress', color: '#6366f1' },
-  done:        { label: 'Done',        color: '#10b981' },
-  did_my_best: { label: 'Did My Best', color: '#f59e0b' },
-  missed:      { label: 'Missed',      color: '#ef4444' },
-  upcoming:    { label: 'Upcoming',    color: '#06b6d4' },
-  first_step:  { label: '1st Step',   color: '#8b5cf6' },
-};
-const STATUS_ORDER = ['first_step','active','pending','done','did_my_best','missed','upcoming'];
+
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -87,7 +78,8 @@ function RoutineCard({ routine, tasks, onPress, colors }) {
 
 function RoutineTaskRow({ task, index, total, onMoveUp, onMoveDown, onRemove, onStatusChange }) {
   const [showPicker, setShowPicker] = useState(false);
-  const status = task.status || 'pending';
+  const todayKey = getLocalDateKey();
+  const status = task.statusHistory?.[todayKey] || task.status || 'pending';
   const color = STATUSES[status]?.color || '#94a3b8';
 
   return (

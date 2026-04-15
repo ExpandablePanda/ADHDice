@@ -4,7 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTasks } from '../lib/TasksContext';
 import { useTheme } from '../lib/ThemeContext';
-import { useProfile } from '../lib/ProfileContext';
+import { useProfile } from './src/lib/ProfileContext';
+import { useSettings } from './src/lib/SettingsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScrollToTop from '../components/ScrollToTop';
 
@@ -13,6 +14,7 @@ export default function SettingsScreen() {
   const { setTasks } = useTasks();
   const { isDark, toggleTheme, colors } = useTheme();
   const { logout, user, storagePrefix } = useProfile();
+  const { dayStartTime, updateSettings } = useSettings();
   const [exportedData, setExportData] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [importDataText, setImportDataText] = useState('');
@@ -179,6 +181,34 @@ export default function SettingsScreen() {
           <View style={styles.headerLeft}>
             <Ionicons name="settings-outline" size={24} color={colors.primary} />
             <Text style={styles.headerTitle}>Settings</Text>
+          </View>
+        </View>
+
+        <Text style={[styles.sectionLabel, styles.firstSection]}>App Settings</Text>
+        <View style={styles.card}>
+          <View style={styles.cardRow}>
+            <View style={[styles.iconBox, { backgroundColor: '#e0f2fe' }]}>
+              <Ionicons name="time-outline" size={20} color={colors.primary} />
+            </View>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>Day Start Time</Text>
+              <Text style={styles.rowDesc}>When 'Upcoming' tasks move to 'Pending'.</Text>
+              <View style={{ flexDirection: 'row', gap: 6, marginTop: 10 }}>
+                {[4, 5, 6, 7, 8, 9].map(h => (
+                  <TouchableOpacity 
+                    key={h} 
+                    onPress={() => updateSettings({ dayStartTime: h })}
+                    style={{
+                      paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8,
+                      backgroundColor: dayStartTime === h ? colors.primary : colors.background,
+                      borderWidth: 1, borderColor: dayStartTime === h ? colors.primary : colors.border
+                    }}
+                  >
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: dayStartTime === h ? '#fff' : colors.textPrimary }}>{h} AM</Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
           </View>
         </View>
 

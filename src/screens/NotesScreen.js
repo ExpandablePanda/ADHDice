@@ -48,6 +48,14 @@ function NoteCard({ note, onPress }) {
           ))}
         </View>
       )}
+      {note.taskId && (
+        <View style={[styles.noteTaskChip, { backgroundColor: colors.primary + '15' }]}>
+          <Ionicons name="link-outline" size={10} color={colors.primary} />
+          <Text style={[styles.noteTaskText, { color: colors.primary }]} numberOfLines={1}>
+            {useTasks().tasks.find(t => t.id === note.taskId)?.title || 'Task'}
+          </Text>
+        </View>
+      )}
     </TouchableOpacity>
   );
 }
@@ -103,11 +111,11 @@ export default function NotesScreen() {
     setQuickTitle('');
   };
 
-  const handleSaveNote = (title, content, tags) => {
+  const handleSaveNote = (title, content, tags, taskId) => {
     if (editingNote) {
-      updateNote(editingNote.id, { title, content, tags });
+      updateNote(editingNote.id, { title, content, tags, taskId });
     } else {
-      addNote(title, content, tags);
+      addNote(title, content, tags, taskId);
     }
     setShowEditor(false);
     setEditingNote(null);
@@ -256,12 +264,16 @@ function NoteEditorModal({ visible, note, onSave, onDelete, onConvert, onClose }
   const [content, setContent] = useState('');
   const [tags, setTags] = useState([]);
   const [tagInput, setTagInput] = useState('');
+  const [taskId, setTaskId] = useState(null);
+  const [showTaskPicker, setShowTaskPicker] = useState(false);
+  const { tasks } = useTasks();
 
   React.useEffect(() => {
     if (visible) {
       setTitle(note?.title || '');
       setContent(note?.content || '');
       setTags(note?.tags || []);
+      setTaskId(note?.taskId || null);
     }
   }, [visible, note]);
 
@@ -292,7 +304,7 @@ function NoteEditorModal({ visible, note, onSave, onDelete, onConvert, onClose }
                 <Ionicons name="trash-outline" size={20} color="#ef4444" />
               </TouchableOpacity>
             )}
-            <TouchableOpacity onPress={() => onSave(title, content, tags)} style={styles.editorSaveBtn}>
+            <TouchableOpacity onPress={() => onSave(title, content, tags, taskId)} style={styles.editorSaveBtn}>
               <Text style={styles.editorSaveText}>Save</Text>
             </TouchableOpacity>
           </View>
@@ -308,22 +320,41 @@ function NoteEditorModal({ visible, note, onSave, onDelete, onConvert, onClose }
             multiline
           />
           
-          <View style={styles.editorTagRow}>
-            {tags.map(t => (
-              <TouchableOpacity key={t} style={styles.tagChipActive} onPress={() => removeTag(t)}>
-                <Text style={{ color: '#fff', fontSize: 11 }}>#{t}</Text>
-                <Ionicons name="close-circle" size={12} color="#fff" style={{ marginLeft: 4 }} />
-              </TouchableOpacity>
-            ))}
-            <TextInput
-              style={styles.tagInput}
-              placeholder="+ add tag"
-              placeholderTextColor="#9ca3af"
-              value={tagInput}
-              onChangeText={setTagInput}
-              onSubmitEditing={handleAddTag}
-              autoCapitalize="none"
-            />
+          </View>
+          
+          <View style={{ marginBottom: 20 }}>
+            <Text style={[styles.fieldLabel, { color: colors.textMuted, fontSize: 11, marginBottom: 6, textTransform: 'uppercase' }]}>Link to Task</Text>
+            <TouchableOpacity 
+              style={[styles.taskLinkBox, { backgroundColor: colors.surface, borderColor: taskId ? colors.primary : '#e5e7eb' }]}
+              onPress={() => setShowTaskPicker(!showTaskPicker)}
+            >
+              <Ionicons name={taskId ? "link" : "link-outline"} size={16} color={taskId ? colors.primary : '#9ca3af'} />
+              <Text style={{ flex: 1, color: taskId ? colors.textPrimary : '#9ca3af', fontSize: 14 }}>
+                {taskId ? (tasks.find(t => t.id === taskId)?.title || 'Linked Task') : 'Choose a task to link...'}
+              </Text>
+              {taskId && (
+                <TouchableOpacity onPress={() => setTaskId(null)} style={{ padding: 4 }}>
+                  <Ionicons name="close-circle" size={16} color="#9ca3af" />
+                </TouchableOpacity>
+              )}
+            </TouchableOpacity>
+            
+            {showTaskPicker && (
+              <View style={[styles.taskPickerList, { backgroundColor: colors.surface }]}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ height: 40 }} contentContainerStyle={{ gap: 8 }}>
+                  {tasks.filter(t => t.status !== 'done' && t.status !== 'did_my_best').map(t => (
+                    <TouchableOpacity 
+                      key={t.id} 
+                      style={[styles.taskOptionChip, taskId === t.id && { backgroundColor: colors.primary }]}
+                      onPress={() => { setTaskId(t.id); setShowTaskPicker(false); }}
+                    >
+                      <Text style={[styles.taskOptionText, taskId === t.id && { color: '#fff' }]}>{t.title}</Text>
+                    </TouchableOpacity>
+                  ))}
+                  {tasks.length === 0 && <Text style={{ color: '#9ca3af', fontSize: 12, paddingVertical: 10 }}>No active tasks to link.</Text>}
+                </ScrollView>
+              </View>
+            )}
           </View>
 
           <TextInput
@@ -463,4 +494,13 @@ const styles = StyleSheet.create({
   tagChipActive: { backgroundColor: '#6366f1', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   tagInput: { fontSize: 13, color: '#9ca3af', width: 100 },
   contentInput: { fontSize: 16, lineHeight: 24, minHeight: 400 },
+  
+  noteTaskChip: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start' },
+  noteTaskText: { fontSize: 10, fontWeight: '600' },
+  
+  taskLinkBox: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, borderRadius: 12, borderWidth: 1 },
+  taskPickerList: { marginTop: 10, borderRadius: 12, padding: 8, borderWidth: 1, borderColor: '#f3f4f6' },
+  taskOptionChip: { paddingHorizontal: 12, paddingVertical: 6, backgroundColor: '#f3f4f6', borderRadius: 20 },
+  taskOptionText: { fontSize: 12, color: '#4b5563', fontWeight: '500' },
+  fieldLabel: { fontSize: 11, fontWeight: '700', letterSpacing: 0.5 },
 });

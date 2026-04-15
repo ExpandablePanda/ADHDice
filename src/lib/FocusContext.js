@@ -21,7 +21,7 @@ export function FocusProvider({ children }) {
   const [entries, setEntries]       = useState([]);
   const [categories, setCategories] = useState(DEFAULT_CATEGORIES);
   const [goals, setGoals]           = useState({});
-  const [timerState, setTimerState] = useState({ isRunning: false, category: 'work', secondsAtStart: 0, startTime: null });
+  const [timerState, setTimerState] = useState({}); // Map: Record<categoryKey, { secondsAtStart: number, startTime: string | null }>
   const [loaded, setLoaded]         = useState(false);
   const [isSyncing, setIsSyncing]   = useState(false);
   
@@ -67,7 +67,15 @@ export function FocusProvider({ children }) {
         try { setGoals(JSON.parse(storedGoals)); } catch(e) {}
       }
       if (storedTimer) {
-        try { setTimerState(JSON.parse(storedTimer)); } catch(e) {}
+        try { 
+          const parsed = JSON.parse(storedTimer);
+          // Migrate old single-timer state if needed
+          if (parsed && parsed.category && parsed.isRunning !== undefined) {
+             setTimerState({ [parsed.category]: { secondsAtStart: parsed.secondsAtStart, startTime: parsed.startTime } });
+          } else {
+             setTimerState(parsed || {}); 
+          }
+        } catch(e) {}
       }
 
       if (user) {
@@ -170,6 +178,44 @@ export function FocusProvider({ children }) {
     setEntries(prev => prev.map(e => e.id === updated.id ? updated : e));
   };
 
+  const startTimer = (category) => {
+    setTimerState(prev => ({
+      ...prev,
+      [category]: {
+        ...prev[category],
+        startTime: new Date().toISOString(),
+        secondsAtStart: prev[category]?.secondsAtStart || 0
+      }
+    }));
+  };
+
+  const stopTimer = (category) => {
+    const state = timerState[category];
+    if (!state || !state.startTime) return 0;
+    
+    const elapsed = Math.floor((new Date() - new Date(state.startTime)) / 1000);
+    const total = (state.secondsAtStart || 0) + elapsed;
+    
+    setTimerState(prev => {
+      const next = { ...prev };
+      next[category] = {
+        ...next[category],
+        startTime: null,
+        secondsAtStart: total
+      };
+      return next;
+    });
+    return total;
+  };
+
+  const resetTimer = (category) => {
+    setTimerState(prev => {
+      const next = { ...prev };
+      delete next[category];
+      return next;
+    });
+  };
+
   if (!loaded) return null;
 
   return (
@@ -178,6 +224,7 @@ export function FocusProvider({ children }) {
       categories, setCategories,
       goals, setGoals,
       timerState, setTimerState,
+      startTimer, stopTimer, resetTimer,
       isSyncing 
     }}>
       {children}
