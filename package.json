@@ -1,6 +1,7 @@
 {
   "name": "adhdice",
   "version": "3.4.1",
+  "homepage": "https://ExpandablePanda.github.io/adhddice-native",
   "main": "index.js",
   "scripts": {
     "start": "expo start",
@@ -8,7 +9,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "build": "npx expo export --platform web",
-    "deploy": "npm run build && npx netlify deploy --dir=dist --prod",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist",
     "ship": "npm run deploy && git push origin main"
   },
   "dependencies": {
@@ -31,5 +33,8 @@
     "react-native-url-polyfill": "^3.0.0",
     "react-native-web": "^0.21.0"
   },
-  "private": true
+  "private": true,
+  "devDependencies": {
+    "gh-pages": "^6.3.0"
+  }
 }
