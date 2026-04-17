@@ -333,23 +333,54 @@ export default function DiceScreen() {
   const [showEfficiencyRoll, setShowEfficiencyRoll] = useState(false);
   
   const rollSoundRef = useRef(null);
+  const alarmSoundRef = useRef(null);
+  const broadcastRef = useRef(null);
 
   useEffect(() => {
-    async function loadSound() {
+    async function loadSounds() {
       try {
-        const { sound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
-        rollSoundRef.current = sound;
+        const { sound: rollSound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
+        rollSoundRef.current = rollSound;
+        
+        const { sound: alarmSound } = await Audio.Sound.createAsync(require('../../assets/calm-alarm.wav'));
+        alarmSoundRef.current = alarmSound;
       } catch (e) {
-        console.log('Failed to load dice-roll sound', e);
+        console.log('Failed to load focus sounds', e);
       }
     }
-    loadSound();
+    loadSounds();
+
+    // Initialize BroadcastChannel for D20 Board sync across tabs
+    if (Platform.OS === 'web' && typeof BroadcastChannel !== 'undefined') {
+      const channelName = `dice_sync_${user?.id || 'anon'}`;
+      broadcastRef.current = new BroadcastChannel(channelName);
+      broadcastRef.current.onmessage = (event) => {
+        if (event.data?.type === 'DICE_UPDATE' && event.data.storagePrefix === storagePrefix) {
+          // Update local state from other tab's broadcast
+          if (event.data.pools) setPools(event.data.pools);
+          if (event.data.history) setHistory(event.data.history);
+          if (event.data.rewardPool) setRewardPool(event.data.rewardPool);
+          if (event.data.dailyBoard) setDailyBoard(event.data.dailyBoard);
+          if (event.data.multiplier) setMultiplier(event.data.multiplier);
+          if (event.data.bank5IfOver17) setBank5IfOver17(event.data.bank5IfOver17);
+        }
+      };
+    }
+
     return () => {
-      if (rollSoundRef.current) {
-        rollSoundRef.current.unloadAsync();
-      }
+      if (rollSoundRef.current) rollSoundRef.current.unloadAsync();
+      if (alarmSoundRef.current) alarmSoundRef.current.unloadAsync();
+      if (broadcastRef.current) broadcastRef.current.close();
     };
-  }, []);
+  }, [user?.id, storagePrefix]);
+
+  async function playAlarmSound() {
+    try {
+      if (alarmSoundRef.current) {
+        await alarmSoundRef.current.replayAsync();
+      }
+    } catch (e) {}
+  }
 
   async function playRollSound() {
     try {
@@ -432,6 +463,13 @@ export default function DiceScreen() {
     lastTimerState.current = breakTimer;
   }, [breakTimer]);
 
+  // ALARM LOGIC: Play sound when timer hits 0
+  useEffect(() => {
+    if (breakTimer && breakTimer.remainingSeconds === 0) {
+      playAlarmSound();
+    }
+  }, [breakTimer?.remainingSeconds]);
+
   useEffect(() => {
     if (!loaded || !dailyBoard) return;
     const localKey = `${storagePrefix}dice_data`;
@@ -441,6 +479,15 @@ export default function DiceScreen() {
       supabase.from('user_dice')
         .upsert({ user_id: user.id, data, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
         .then(({ error }) => { if (error) console.error('Dice cloud save failed', error); });
+    }
+
+    // Broadcast to other tabs
+    if (broadcastRef.current) {
+      broadcastRef.current.postMessage({
+        type: 'DICE_UPDATE',
+        ...data,
+        storagePrefix
+      });
     }
   }, [pools, history, rewardPool, dailyBoard, multiplier, bank5IfOver17, loaded, storagePrefix, user]);
 
@@ -1791,7 +1838,8 @@ const styles = StyleSheet.create({
     color: '#374151',
     textAlign: 'center',
     marginBottom: 6,
-    maxHeight: 32,
+    maxHeight: 38,
+    width: 120, // Constrain width to circle
   },
   clockTime: {
     fontSize: 28,

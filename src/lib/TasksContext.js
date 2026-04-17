@@ -120,7 +120,8 @@ export function TasksProvider({ children }) {
         if (event.data?.type === 'TASKS_UPDATE' && event.data.storagePrefix === storagePrefix) {
           isRemoteUpdateRef.current = true;
           setTasks(event.data.tasks);
-          setTaskHistory(event.data.history);
+          if (event.data.history) setTaskHistory(event.data.history);
+          if (event.data.breakTimer !== undefined) setBreakTimer(event.data.breakTimer);
         }
       };
     }
@@ -137,9 +138,11 @@ export function TasksProvider({ children }) {
       let initialTasks = [];
       let initialHistory = [];
       
+      // A. Load local state first
       try {
         const storedTasks = await AsyncStorage.getItem(`${storagePrefix}tasks`);
         const storedHistory = await AsyncStorage.getItem(`${storagePrefix}task_history`);
+        const storedBreak = await AsyncStorage.getItem(`${storagePrefix}break_timer`);
         
         if (storedTasks) {
           const parsed = JSON.parse(storedTasks);
@@ -148,6 +151,18 @@ export function TasksProvider({ children }) {
         if (storedHistory) {
           const parsed = JSON.parse(storedHistory);
           if (Array.isArray(parsed)) initialHistory = parsed.filter(Boolean);
+        }
+        if (storedBreak) {
+          try {
+            const parsed = JSON.parse(storedBreak);
+            if (parsed && parsed.remainingSeconds > 0 && parsed.lastUpdated) {
+              const elapsed = Math.floor((Date.now() - parsed.lastUpdated) / 1000);
+              const remaining = Math.max(0, parsed.remainingSeconds - elapsed);
+              if (remaining > 0) {
+                setBreakTimer({ ...parsed, remainingSeconds: remaining });
+              }
+            }
+          } catch (e) {}
         }
       } catch (e) {
         console.error('Failed to load local tasks', e);
@@ -166,13 +181,22 @@ export function TasksProvider({ children }) {
             .single();
 
           if (data?.data) {
-            // Only update if cloud has content
             isRemoteUpdateRef.current = true;
-            if (Array.isArray(data.data)) {
-              setTasks(data.data.filter(Boolean));
-            } else if (data.data.tasks) {
-              setTasks(data.data.tasks.filter(Boolean));
-              if (data.data.history) setTaskHistory(data.data.history.filter(Boolean));
+            const cloud = data.data;
+            if (Array.isArray(cloud)) {
+              setTasks(cloud.filter(Boolean));
+            } else if (cloud.tasks) {
+              setTasks(cloud.tasks.filter(Boolean));
+              if (cloud.history) setTaskHistory(cloud.history.filter(Boolean));
+              
+              // Handle break timer from cloud
+              if (cloud.breakTimer && cloud.breakTimer.remainingSeconds > 0 && cloud.breakTimer.lastUpdated) {
+                const elapsed = Math.floor((Date.now() - cloud.breakTimer.lastUpdated) / 1000);
+                const remaining = Math.max(0, cloud.breakTimer.remainingSeconds - elapsed);
+                if (remaining > 0) {
+                  setBreakTimer({ ...cloud.breakTimer, remainingSeconds: remaining });
+                }
+              }
             }
           }
         } catch (e) {
@@ -205,6 +229,14 @@ export function TasksProvider({ children }) {
             } else if (payload.new.data.tasks) {
               setTasks(payload.new.data.tasks.filter(Boolean));
               if (payload.new.data.history) setTaskHistory(payload.new.data.history.filter(Boolean));
+              
+              const remoteTimer = payload.new.data.breakTimer;
+              if (remoteTimer && remoteTimer.remainingSeconds > 0 && remoteTimer.lastUpdated) {
+                const elapsed = Math.floor((Date.now() - remoteTimer.lastUpdated) / 1000);
+                const remaining = Math.max(0, remoteTimer.remainingSeconds - elapsed);
+                if (remaining > 0) setBreakTimer({ ...remoteTimer, remainingSeconds: remaining });
+                else setBreakTimer(null);
+              }
             }
           }
         }
@@ -224,26 +256,30 @@ export function TasksProvider({ children }) {
       return;
     }
 
-    // Mark that we have changed something locally
-    lastLocalChangeRef.current = Date.now();
-
-    // Broadcast to other tabs immediately
-    if (broadcastRef.current) {
-      broadcastRef.current.postMessage({
-        type: 'TASKS_UPDATE',
-        tasks,
-        history: taskHistory,
-        storagePrefix
-      });
-    }
-
     const saveData = async () => {
       const dataToSave = tasks;
       const historyToSave = taskHistory;
+      const timerToSave = breakTimer ? { ...breakTimer, lastUpdated: Date.now() } : null;
 
-      // Always save locally (works with or without a logged-in user)
+      // Broadcast to other tabs immediately
+      if (broadcastRef.current) {
+        broadcastRef.current.postMessage({
+          type: 'TASKS_UPDATE',
+          tasks,
+          history: taskHistory,
+          breakTimer: timerToSave,
+          storagePrefix
+        });
+      }
+
+      // Always save locally
       await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(dataToSave));
       await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(historyToSave));
+      if (timerToSave) {
+        await AsyncStorage.setItem(`${storagePrefix}break_timer`, JSON.stringify(timerToSave));
+      } else {
+        await AsyncStorage.removeItem(`${storagePrefix}break_timer`);
+      }
 
       // Push to cloud only when logged in
       if (user) {
@@ -253,7 +289,7 @@ export function TasksProvider({ children }) {
             .from('user_tasks')
             .upsert({
               user_id: user.id,
-              data: { tasks: dataToSave, history: historyToSave },
+              data: { tasks: dataToSave, history: historyToSave, breakTimer: timerToSave },
               updated_at: new Date().toISOString()
             }, { onConflict: 'user_id' });
 
@@ -276,7 +312,7 @@ export function TasksProvider({ children }) {
       clearTimeout(timeoutId);
       if (Platform.OS === 'web') window.removeEventListener('pagehide', handleUnload);
     };
-  }, [tasks, taskHistory, loaded, user, storagePrefix]);
+  }, [tasks, taskHistory, breakTimer, loaded, user, storagePrefix]);
 
   // 3. Day-Start Transition Logic
   const { dayStartTime } = useSettings();
