@@ -14,9 +14,11 @@ import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useProfile } from '../lib/ProfileContext';
 import { supabase } from '../lib/supabase';
+import { useTasks } from '../lib/TasksContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollToTop from '../components/ScrollToTop';
 import ModalScreen from '../components/ModalScreen';
+import EfficiencyRollModal from '../components/EfficiencyRollModal';
 
 const SCREEN_W = Dimensions.get('window').width;
 
@@ -323,6 +325,12 @@ export default function DiceScreen() {
   const [rolling, setRolling]       = useState(false);
   const [result, setResult]         = useState(null); // { face, prize }
   const [showManager, setShowManager] = useState(false);
+  const { startBreak, breakTimer, adjustBreakTime, linkPrizeToBreak } = useTasks();
+  const [breakInput, setBreakInput] = useState('10');
+  const [showPrizeLinker, setShowPrizeLinker] = useState(false);
+  const [pendingPrize, setPendingPrize] = useState(null); // { name, count }
+  const [modalSelection, setModalSelection] = useState(null); // { name, count }
+  const [showEfficiencyRoll, setShowEfficiencyRoll] = useState(false);
   
   const rollSoundRef = useRef(null);
 
@@ -383,7 +391,6 @@ export default function DiceScreen() {
           if (data.bank5IfOver17) setBank5IfOver17(data.bank5IfOver17);
         } catch (e) { console.error('Failed to parse dice data', e); }
       }
-
       // Cloud is source of truth
       if (user) {
         try {
@@ -397,10 +404,10 @@ export default function DiceScreen() {
             if (cloud.multiplier) setMultiplier(cloud.multiplier);
             if (cloud.bank5IfOver17) setBank5IfOver17(cloud.bank5IfOver17);
           }
-        } catch (e) { console.log('Dice cloud load skipped', e); }
+        } catch (e) { console.log('Dice cloud sync skipped', e); }
       }
-
-      setPools(currentPools);
+      if (currentPools) setPools(currentPools);
+      
       const today = new Date().toDateString();
       if (!boardData || boardData.date !== today) {
         boardData = { date: today, map: generateDailyPool(currentPools) };
@@ -410,6 +417,20 @@ export default function DiceScreen() {
     }
     loadDice();
   }, [storagePrefix, user]);
+
+  // AUTO-CLAIM LOGIC: Watch the break timer and claim the reward if it finishes
+  const lastTimerState = useRef(null);
+  useEffect(() => {
+    // If it was active and had a prize, and now it's null (finished)
+    if (lastTimerState.current?.linkedPrize && !breakTimer) {
+      // Was it close to zero when it disappeared? (TasksContext clears at <= 1)
+      if (lastTimerState.current.remainingSeconds <= 3) {
+        const { name, count } = lastTimerState.current.linkedPrize;
+        claimReward(name, count);
+      }
+    }
+    lastTimerState.current = breakTimer;
+  }, [breakTimer]);
 
   useEffect(() => {
     if (!loaded || !dailyBoard) return;
@@ -610,11 +631,11 @@ export default function DiceScreen() {
     setShowManager(false);
   }
 
-  function claimReward(prize) {
+  function claimReward(prize, count = 1) {
     setRewardPool(pool => {
       const newPool = { ...pool };
-      if (newPool[prize] > 1) {
-        newPool[prize] -= 1;
+      if (newPool[prize] > count) {
+        newPool[prize] -= count;
       } else {
         delete newPool[prize];
       }
@@ -651,7 +672,18 @@ export default function DiceScreen() {
 
   const poolEntries = Object.entries(rewardPool)
     .filter(([, count]) => typeof count === 'number' && !isNaN(count))
-    .sort((a, b) => b[1] - a[1]);
+    .sort((a, b) => {
+      const aName = a[0];
+      const bName = b[0];
+      const aStartsNum = /^\d/.test(aName);
+      const bStartsNum = /^\d/.test(bName);
+
+      if (aStartsNum && !bStartsNum) return -1;
+      if (!aStartsNum && bStartsNum) return 1;
+      
+      // If both are numbers or both are text, sort naturally (handles "5" vs "10")
+      return aName.localeCompare(bName, undefined, { numeric: true, sensitivity: 'base' });
+    });
   const totalUnclaimed = poolEntries.reduce((acc, [, count]) => acc + count, 0);
 
   function handleManualShuffle() {
@@ -817,10 +849,26 @@ export default function DiceScreen() {
         </View>
 
         {!rolling && (
-          <View style={{ alignItems: 'center', marginBottom: 32 }}>
-            <TouchableOpacity style={{ borderWidth: 1, borderColor: colors.primary, paddingHorizontal: 20, paddingVertical: 12, borderRadius: 24 }} onPress={handlePhysicalRoll}>
-               <Text style={{ color: colors.primary, fontSize: 13, fontWeight: '700' }}>I have my own D20 and will roll</Text>
+          <View style={{ alignItems: 'center', marginBottom: 32, gap: 12 }}>
+            <TouchableOpacity 
+              style={styles.rollAgainBtn} 
+              onPress={rollDice}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="play" size={20} color="#fff" />
+              <Text style={styles.rollAgainText}>Roll {multiplier > 1 ? `x${multiplier}` : 'Dice'}</Text>
             </TouchableOpacity>
+
+            {economy.freeRolls > 1 && (
+              <TouchableOpacity 
+                style={[styles.rollAgainBtn, { backgroundColor: '#8b5cf6' }]} 
+                onPress={() => setShowEfficiencyRoll(true)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="flash-outline" size={20} color="#fff" />
+                <Text style={styles.rollAgainText}>Efficiency Roll ({economy.freeRolls})</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
         
@@ -868,6 +916,91 @@ export default function DiceScreen() {
              {renderGridBoard(false)}
            </View>
         )}
+
+        {/* Permanent Break Timer UI */}
+        <View style={styles.breakSection}>
+          <Text style={styles.breakTitle}>Time for a break?</Text>
+          
+          <TouchableOpacity 
+            onPress={() => {
+              setModalSelection(breakTimer?.linkedPrize || pendingPrize || null);
+              setShowPrizeLinker(true);
+            }}
+            style={[styles.breakClock, (breakTimer || pendingPrize) && { borderColor: colors.primary }]} 
+          >
+            {breakTimer?.linkedPrize ? (
+              <View style={{ alignItems: 'center', paddingHorizontal: 10 }}>
+                <Text style={styles.linkedPrizeLabel}>TRACKING</Text>
+                <Text style={styles.linkedPrizeText} numberOfLines={1} adjustFontSizeToFit>
+                  {breakTimer.linkedPrize.count > 1 ? `${breakTimer.linkedPrize.count}x ` : ''}{breakTimer.linkedPrize.name}
+                </Text>
+                <Text style={styles.clockTime}>{Math.floor(breakTimer.remainingSeconds / 60)}:{String(breakTimer.remainingSeconds % 60).padStart(2, '0')}</Text>
+              </View>
+            ) : pendingPrize ? (
+              <View style={{ alignItems: 'center', paddingHorizontal: 10 }}>
+                <Text style={styles.linkedPrizeLabel}>LINKED</Text>
+                <Text style={styles.linkedPrizeText} numberOfLines={1} adjustFontSizeToFit>
+                  {pendingPrize.count > 1 ? `${pendingPrize.count}x ` : ''}{pendingPrize.name}
+                </Text>
+                <Text style={[styles.clockSub, { fontSize: 11 }]} numberOfLines={1} adjustFontSizeToFit>Select Time Below</Text>
+              </View>
+            ) : (
+              <>
+                <Ionicons name="link-outline" size={24} color={colors.primary} style={{ marginBottom: 4 }} />
+                <Text style={styles.clockTime}>Link</Text>
+                <Text style={[styles.clockSub, { fontSize: 13 }]} numberOfLines={1} adjustFontSizeToFit>Reward</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          {/* Adjustment Controls (Only if running) */}
+          {breakTimer && (
+            <View style={styles.timerAdjustRow}>
+              {[-5, -1, 1, 5].map(m => (
+                <TouchableOpacity 
+                  key={m} 
+                  style={[styles.smallAdjustBtn, { backgroundColor: m > 0 ? colors.primary + '15' : '#fee2e2' }]} 
+                  onPress={() => adjustBreakTime(m * 60)}
+                >
+                  <Text style={[styles.adjustBtnText, { color: m > 0 ? colors.primary : '#ef4444' }]}>{m > 0 ? '+' : ''}{m}m</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {(breakTimer || pendingPrize) && (
+            <View style={styles.breakRow}>
+              {['5', '10', '15', '20'].map(m => (
+                <TouchableOpacity 
+                  key={m}
+                  style={[styles.breakOpt, breakInput === m && styles.breakOptActive]} 
+                  onPress={() => {
+                    setBreakInput(m);
+                    if (pendingPrize && !breakTimer) {
+                      startBreak(parseInt(m), pendingPrize);
+                      setPendingPrize(null);
+                    }
+                  }}
+                >
+                  <Text style={[styles.breakOptText, breakInput === m && styles.breakOptTextActive]}>{m}m</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {breakTimer && (
+            <TouchableOpacity 
+              style={[styles.linkPrizeBtn, breakTimer.linkedPrize && { borderColor: colors.primary, backgroundColor: colors.primary + '08' }]} 
+              onPress={() => {
+                setModalSelection(breakTimer.linkedPrize);
+                setShowPrizeLinker(true);
+              }}
+            >
+              <Ionicons name="link-outline" size={16} color={colors.primary} />
+              <Text style={styles.linkPrizeText}>{breakTimer.linkedPrize ? 'Change Linked Reward' : 'Link Reward to Timer'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
         {/* Empty state */}
         {!pools && (
@@ -1017,6 +1150,116 @@ export default function DiceScreen() {
           </ScrollView>
         </ModalScreen>
       </Modal>
+
+      {/* Reward Picker Modal (for linking break) */}
+      <Modal visible={showPrizeLinker} animationType="slide">
+        <ModalScreen style={styles.managerScreen}>
+          <View style={styles.managerHeader}>
+             <TouchableOpacity onPress={() => setShowPrizeLinker(false)} style={styles.iconBtn}><Ionicons name="close" size={22} color={colors.textSecondary} /></TouchableOpacity>
+             <Text style={styles.managerTitle}>Link Reward to Timer</Text>
+             {(breakTimer?.linkedPrize || pendingPrize) ? (
+               <TouchableOpacity onPress={() => { 
+                 if (breakTimer) linkPrizeToBreak(null); 
+                 else setPendingPrize(null);
+                 setModalSelection(null);
+                 setShowPrizeLinker(false); 
+               }} style={styles.iconBtn}>
+                 <Ionicons name="trash-outline" size={20} color="#ef4444" />
+               </TouchableOpacity>
+             ) : <View style={{ width: 38 }} />}
+          </View>
+          <ScrollView contentContainerStyle={styles.managerBody}>
+             <Text style={{ fontSize: 13, color: colors.textMuted, marginBottom: 16 }}>Which reward are you tracking for this break?</Text>
+             
+             {poolEntries.length === 0 ? (
+               <View style={{ alignItems: 'center', paddingVertical: 40 }}>
+                 <Ionicons name="gift-outline" size={48} color="#d1d5db" />
+                 <Text style={{ fontSize: 16, color: colors.textMuted, marginTop: 12 }}>No unclaimed rewards found.</Text>
+               </View>
+              ) : (
+                poolEntries.map(([prize, count]) => {
+                  const isSelected = modalSelection?.name === prize;
+                  return (
+                    <TouchableOpacity 
+                      key={prize} 
+                      style={[styles.prizeRow, isSelected && { backgroundColor: colors.primary + '08', borderColor: colors.primary }]} 
+                      onPress={() => {
+                        setModalSelection({ name: prize, count: 1 });
+                      }}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.prizeText, isSelected && { fontWeight: '700', color: colors.primary }]}>{prize}</Text>
+                        <Text style={{ fontSize: 11, color: colors.textMuted }}>{count} available</Text>
+                      </View>
+                      
+                      {isSelected ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                          <TouchableOpacity 
+                            onPress={() => {
+                              if (modalSelection.count <= 1) {
+                                setModalSelection(null);
+                              } else {
+                                setModalSelection(prev => ({ ...prev, count: prev.count - 1 }));
+                              }
+                            }}
+                            style={{ padding: 4 }}
+                          >
+                            <Ionicons name="remove-circle-outline" size={24} color={colors.primary} />
+                          </TouchableOpacity>
+                          <Text style={{ fontSize: 16, fontWeight: '700', color: colors.primary, minWidth: 20, textAlign: 'center' }}>
+                            {modalSelection.count}
+                          </Text>
+                          <TouchableOpacity 
+                            onPress={() => setModalSelection(prev => ({ ...prev, count: Math.min(count, prev.count + 1) }))}
+                            style={{ padding: 4 }}
+                          >
+                            <Ionicons name="add-circle" size={24} color={colors.primary} />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <Ionicons name="add-circle-outline" size={20} color="#d1d5db" />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })
+              )}
+
+              {modalSelection && (
+                <TouchableOpacity 
+                  style={[styles.rollAgainBtn, { marginTop: 24 }]} 
+                  onPress={() => {
+                    if (breakTimer) {
+                      linkPrizeToBreak(modalSelection);
+                    } else {
+                      setPendingPrize(modalSelection);
+                    }
+                    setShowPrizeLinker(false);
+                  }}
+                >
+                  <Ionicons name="link-outline" size={18} color="#fff" />
+                  <Text style={styles.rollAgainText}>
+                    Link {modalSelection.count > 1 ? `${modalSelection.count}x ` : ''}Selection
+                  </Text>
+                </TouchableOpacity>
+              )}
+          </ScrollView>
+        </ModalScreen>
+      </Modal>
+
+      {/* Efficiency Roll Modal */}
+      <EfficiencyRollModal
+        visible={showEfficiencyRoll}
+        freeRolls={economy.freeRolls}
+        onClose={() => setShowEfficiencyRoll(false)}
+        onFinish={(payout) => {
+          bulkConsumeFreeRolls();
+          addReward(payout.points, payout.xp);
+          setShowEfficiencyRoll(false);
+          // Show a quick alert with results
+          Alert.alert('Consolidated Rewards!', `You banked ${payout.points} Points and ${payout.xp} XP!`);
+        }}
+        colors={colors}
+      />
 
       {showScrollTop && <ScrollToTop scrollRef={scrollRef} />}
     </SafeAreaView>
@@ -1497,4 +1740,129 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     fontSize: 13,
   },
+  breakSection: {
+    marginHorizontal: 20,
+    marginTop: 8,
+    marginBottom: 24,
+    alignItems: 'center',
+    backgroundColor: '#f9fafb',
+    borderRadius: 24,
+    padding: 24,
+    borderWidth: 1.5,
+    borderColor: '#f3f4f6',
+    shadowColor: '#000',
+    shadowOpacity: 0.03,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  breakTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    letterSpacing: 1.5,
+    marginBottom: 20,
+  },
+  breakClock: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#fff',
+    borderWidth: 4,
+    borderColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 15,
+    elevation: 5,
+    marginBottom: 16,
+  },
+  linkedPrizeLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.primary,
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  linkedPrizeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#374151',
+    textAlign: 'center',
+    marginBottom: 6,
+    maxHeight: 32,
+  },
+  clockTime: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111827',
+    fontVariant: ['tabular-nums'],
+  },
+  clockSub: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.primary,
+    marginTop: 4,
+    textTransform: 'uppercase',
+  },
+  timerAdjustRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 20,
+  },
+  smallAdjustBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  adjustBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  breakRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 20,
+  },
+  breakOpt: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: '#fff',
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+  },
+  breakOptActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  breakOptText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#6b7280',
+  },
+  breakOptTextActive: {
+    color: '#fff',
+  },
+  linkPrizeBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: '#e5e7eb',
+    backgroundColor: '#fff',
+  },
+  linkPrizeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+
 });
+

@@ -42,7 +42,7 @@ export default function LandingScreen() {
         </View>
 
         {/* Version */}
-        <Text style={styles.version}>V.03.04</Text>
+        <Text style={styles.version}>V.3.2.0</Text>
       </View>
     </SafeAreaView>
   );

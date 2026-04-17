@@ -7,13 +7,19 @@ import { supabase } from './supabase';
 const FocusContext = createContext();
 
 const DEFAULT_CATEGORIES = [
-  { key: 'work',     label: 'Work',      color: '#4f46e5', icon: 'briefcase-outline' },
-  { key: 'study',    label: 'Study',     color: '#0891b2', icon: 'book-outline' },
-  { key: 'creative', label: 'Creative',  color: '#7c3aed', icon: 'color-palette-outline' },
-  { key: 'exercise', label: 'Exercise',  color: '#059669', icon: 'fitness-outline' },
-  { key: 'chores',   label: 'Chores',    color: '#d97706', icon: 'home-outline' },
-  { key: 'personal', label: 'Personal',  color: '#ec4899', icon: 'person-outline' },
-  { key: 'other',    label: 'Other',     color: '#6b7280', icon: 'ellipsis-horizontal-outline' },
+  { key: 'work',        label: 'Work',          color: '#4f46e5', icon: 'briefcase-outline', isProductive: true },
+  { key: 'lamprey',     label: 'Lamprey (Work)',color: '#4338ca', icon: 'flash-outline',     isProductive: true },
+  { key: 'study',       label: 'Study',         color: '#0891b2', icon: 'book-outline',      isProductive: true },
+  { key: 'learning',    label: 'Learning',      color: '#0e7490', icon: 'school-outline',    isProductive: true },
+  { key: 'creative',    label: 'Creative',      color: '#7c3aed', icon: 'color-palette-outline', isProductive: true },
+  { key: 'exercise',    label: 'Exercise',      color: '#059669', icon: 'fitness-outline',    isProductive: true },
+  { key: 'chores',      label: 'Chores',        color: '#d97706', icon: 'home-outline',       isProductive: true },
+  { key: 'tcg',         label: 'TCG (Social)',  color: '#be185d', icon: 'people-outline',    isProductive: false },
+  { key: 'music',       label: 'Music (Ent.)',  color: '#db2777', icon: 'musical-notes-outline', isProductive: false },
+  { key: 'entertainment',label: 'Entertainment', color: '#c026d3', icon: 'tv-outline',        isProductive: false },
+  { key: 'social',      label: 'Social',        color: '#e11d48', icon: 'chatbubble-outline', isProductive: false },
+  { key: 'personal',    label: 'Personal',      color: '#ec4899', icon: 'person-outline',     isProductive: false },
+  { key: 'other',       label: 'Other',         color: '#6b7280', icon: 'ellipsis-horizontal-outline', isProductive: false },
 ];
 
 export function FocusProvider({ children }) {

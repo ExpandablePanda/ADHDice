@@ -121,7 +121,7 @@ function RPGHeaderRight() {
   );
 }
 
-const APP_VERSION = 'V.03.06';
+const APP_VERSION = 'V.3.2.0';
 
 function LogoHeaderLeft() {
   const { colors } = useTheme();

@@ -217,10 +217,22 @@ export function EconomyProvider({ children }) {
     setEconomy(prev => ({ ...prev, freeRolls: prev.freeRolls + amount }));
   };
 
+  const bulkConsumeFreeRolls = () => {
+    const count = economy.freeRolls;
+    if (count > 0) {
+      setEconomy(prev => ({ ...prev, freeRolls: 0 }));
+    }
+    return count;
+  };
+
   if (!loaded) return null;
 
   return (
-    <EconomyContext.Provider value={{ economy, addReward, spendPoints, removeReward, resetEconomy, cheatEconomy, incrementActiveStreak, incrementMissedStreak, addXP, addFreeRoll }}>
+    <EconomyContext.Provider value={{ 
+      economy, addReward, spendPoints, removeReward, resetEconomy, 
+      cheatEconomy, incrementActiveStreak, incrementMissedStreak, 
+      addXP, addFreeRoll, bulkConsumeFreeRolls 
+    }}>
       {children}
     </EconomyContext.Provider>
   );

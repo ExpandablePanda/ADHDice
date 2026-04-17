@@ -13,9 +13,17 @@ export function ProfileProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setUser(session?.user ?? null);
       setLoaded(true);
-    }).catch(error => {
+    }).catch(async (error) => {
       console.error('Session loading failed:', error);
-      setLoaded(true); // Still set loaded to true to show landing/auth
+      // For specific critical auth errors, clear the session locally
+      if (error?.message?.includes('Refresh Token Not Found') || error?.message?.includes('invalid_grant')) {
+        try {
+          await supabase.auth.signOut();
+        } catch (e) {
+          // Ignore sign out errors if already unauthenticated
+        }
+      }
+      setLoaded(true); 
     });
 
     // Listen for auth changes

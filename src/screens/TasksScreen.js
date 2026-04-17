@@ -20,6 +20,7 @@ import CalendarModal from '../components/CalendarModal';
 import TimePickerModal from '../components/TimePickerModal';
 import ScrollToTop from '../components/ScrollToTop';
 import ModalScreen from '../components/ModalScreen';
+import EfficiencyRollModal from '../components/EfficiencyRollModal';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_GAP = 12;
@@ -43,10 +44,9 @@ const VIEWS = [
 ];
 
 // ── ID helpers ────────────────────────────────────────────────────────────────
-let nextTaskId    = 5;
-let nextSubtaskId = 30;
-const newSubtask  = title => ({ id: String(nextSubtaskId++), title, status: 'pending', subtasks: [] });
-const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
+const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
+const newSubtask  = title => ({ id: generateId(), title, status: 'pending', subtasks: [] });
+const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, isUrgent: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
 
 // ── Frequency / next-due-date helper ─────────────────────────────────────────
 function calcNextDueDate(task, dayStartTime = 6) {
@@ -148,6 +148,59 @@ function findInTree(subtasks, id) {
     if (found) return found;
   }
   return null;
+}
+
+function reorderInTree(subtasks, id, direction) {
+  const idx = subtasks.findIndex(s => s.id === id);
+  if (idx !== -1) {
+    const nextArr = [...subtasks];
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx >= 0 && targetIdx < nextArr.length) {
+      [nextArr[idx], nextArr[targetIdx]] = [nextArr[targetIdx], nextArr[idx]];
+    }
+    return nextArr;
+  }
+  return subtasks.map(s => ({
+    ...s,
+    subtasks: reorderInTree(s.subtasks || [], id, direction)
+  }));
+}
+
+function ensureUniqueIds(tasks) {
+  const seen = new Set();
+  let changed = false;
+
+  function processSubtasks(subs) {
+    return (subs || []).map(s => {
+      let finalId = s.id;
+      if (!finalId || seen.has(finalId)) {
+        finalId = generateId();
+        changed = true;
+      }
+      seen.add(finalId);
+      return {
+        ...s,
+        id: finalId,
+        subtasks: processSubtasks(s.subtasks)
+      };
+    });
+  }
+
+  const result = tasks.map(t => {
+    let finalId = t.id;
+    if (!finalId || seen.has(finalId)) {
+      finalId = generateId();
+      changed = true;
+    }
+    seen.add(finalId);
+    return {
+      ...t,
+      id: finalId,
+      subtasks: processSubtasks(t.subtasks)
+    };
+  });
+
+  return { result, changed };
 }
 
 
@@ -696,7 +749,11 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
   const hasSubtasks = (task.subtasks || []).length > 0;
 
   return (
-    <View style={[styles.rowContainer, task.isPriority && task.status !== 'done' && { borderLeftWidth: 4, borderLeftColor: '#8b5cf6', backgroundColor: '#f5f3ff' }]}>
+    <View style={[
+      styles.rowContainer, 
+      task.isPriority && task.status !== 'done' && { borderLeftWidth: 4, borderLeftColor: '#8b5cf6', backgroundColor: '#f5f3ff' },
+      task.isUrgent && task.status !== 'done' && { borderLeftWidth: 4, borderLeftColor: '#ef4444', backgroundColor: '#fff1f2' }
+    ]}>
       <TouchableOpacity
         style={styles.row}
         activeOpacity={0.6}
@@ -705,6 +762,9 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
         <View style={{ flexDirection: 'row', alignItems: 'center' }}>
           <TouchableOpacity onPress={(e) => { e.stopPropagation(); setShowStatusPicker(s => !s); }} style={styles.dotWrap} hitSlop={8}>
             <View style={[styles.dot, { backgroundColor: status?.color || '#cbd5e1' }]} />
+            {task.isUrgent && task.status !== 'done' && (
+              <View style={{ position: 'absolute', top: -2, right: -2, backgroundColor: '#ef4444', width: 8, height: 8, borderRadius: 4, borderWidth: 1.5, borderColor: '#fff' }} />
+            )}
           </TouchableOpacity>
         </View>
         <View style={styles.rowBody}>
@@ -1026,7 +1086,7 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory, isFlipped, onFlipC
 // SUBTASK ITEM (recursive)
 // ═════════════════════════════════════════════════════════════════════════════
 
-function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
+function SubtaskItem({ subtask, depth, onToggle, onDelete, onReorder, onAddChild, isFirst, isLast }) {
   const [showAdd, setShowAdd] = useState(false);
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [input, setInput]     = useState('');
@@ -1045,6 +1105,18 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
   return (
     <View style={{ marginLeft: depth * 18 }}>
       <View style={styles.subtaskRow}>
+        <View style={{ flexDirection: 'column', gap: 2, marginRight: 2 }}>
+          {!isFirst && (
+            <TouchableOpacity onPress={() => onReorder(subtask.id, 'up')} hitSlop={5}>
+              <Ionicons name="chevron-up" size={12} color="#9ca3af" />
+            </TouchableOpacity>
+          )}
+          {!isLast && (
+            <TouchableOpacity onPress={() => onReorder(subtask.id, 'down')} hitSlop={5}>
+              <Ionicons name="chevron-down" size={12} color="#9ca3af" />
+            </TouchableOpacity>
+          )}
+        </View>
         <TouchableOpacity onPress={() => setShowStatusPicker(s => !s)} style={styles.subtaskCheck}>
           <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: statusCfg.color }} />
         </TouchableOpacity>
@@ -1082,14 +1154,17 @@ function SubtaskItem({ subtask, depth, onToggle, onDelete, onAddChild }) {
       )}
 
       {/* Nested children */}
-      {(subtask.subtasks || []).map(child => (
+      {(subtask.subtasks || []).map((child, idx) => (
         <SubtaskItem
           key={child.id}
           subtask={child}
           depth={depth + 1}
           onToggle={onToggle}
           onDelete={onDelete}
+          onReorder={onReorder}
           onAddChild={onAddChild}
+          isFirst={idx === 0}
+          isLast={idx === (subtask.subtasks || []).length - 1}
         />
       ))}
 
@@ -1133,7 +1208,8 @@ function TaskDetailModal({ task, onSave, onDelete, onClose, onViewNote }) {
     subtasks: task.subtasks || [], 
     tags: task.tags || [], 
     frequency: task.frequency || null,
-    status: is1stStep ? 'first_step' : task.status
+    status: is1stStep ? 'first_step' : task.status,
+    isUrgent: !!task.isUrgent,
   };
   const [draft, setDraft]       = useState(initialState);
   const [subInput, setSubInput] = useState('');
@@ -1166,10 +1242,11 @@ function TaskDetailModal({ task, onSave, onDelete, onClose, onViewNote }) {
         statusHistory: task.statusHistory,
         subtasks: task.subtasks,
         streak: task.streak,
-        completedAt: task.completedAt
+        completedAt: task.completedAt,
+        isUrgent: task.isUrgent
       }));
     }
-  }, [task.status, task.dueDate, task.statusHistory, task.subtasks]);
+  }, [task.status, task.dueDate, task.statusHistory, task.subtasks, task.isUrgent]);
 
   const titleSuggestions = React.useMemo(() => {
     const q = draft.title.trim().toLowerCase();
@@ -1209,6 +1286,7 @@ function TaskDetailModal({ task, onSave, onDelete, onClose, onViewNote }) {
     });
   }
   function deleteSub(id)           { setDraft(d => ({ ...d, subtasks: deleteById(d.subtasks, id) })); }
+  function reorderSub(id, dir)      { setDraft(d => ({ ...d, subtasks: reorderInTree(d.subtasks, id, dir) })); }
   function addChildSub(pid, child) { setDraft(d => ({ ...d, subtasks: addChildTo(d.subtasks, pid, child) })); }
 
   function addTopSubtasks() {
@@ -1299,6 +1377,19 @@ function TaskDetailModal({ task, onSave, onDelete, onClose, onViewNote }) {
                 <Text style={[styles.optChipText, draft.status === key && { color: '#fff' }]}>{cfg.label}</Text>
               </TouchableOpacity>
             ))}
+          </View>
+          
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Ionicons name="alert-circle" size={20} color={draft.isUrgent ? '#ef4444' : '#9ca3af'} />
+              <Text style={{ fontSize: 15, fontWeight: '600', color: '#374151' }}>Urgent Task</Text>
+            </View>
+            <TouchableOpacity 
+              style={[styles.optChip, draft.isUrgent && { backgroundColor: '#ef4444', borderColor: '#ef4444' }]}
+              onPress={() => field('isUrgent', !draft.isUrgent)}
+            >
+              <Text style={[styles.optChipText, draft.isUrgent && { color: '#fff' }]}>{draft.isUrgent ? 'URGENT' : 'No'}</Text>
+            </TouchableOpacity>
           </View>
 
           {/* Frequency */}
@@ -1651,14 +1742,17 @@ function TaskDetailModal({ task, onSave, onDelete, onClose, onViewNote }) {
             </View>
           )}
 
-          {draft.subtasks.map(sub => (
+          {draft.subtasks.map((sub, idx) => (
             <SubtaskItem
               key={sub.id}
               subtask={sub}
               depth={0}
               onToggle={toggleSub}
               onDelete={deleteSub}
+              onReorder={reorderSub}
               onAddChild={addChildSub}
+              isFirst={idx === 0}
+              isLast={idx === draft.subtasks.length - 1}
             />
           ))}
           <TextInput
@@ -2207,7 +2301,7 @@ function FocusYourDay({ tasks, onComplete }) {
 export default function TasksScreen() {
   const { colors } = useTheme();
   const { dayStartTime } = useSettings();
-  const { tasks, setTasks, logTaskEvent, taskHistory, isSyncing } = useTasks();
+  const { tasks, setTasks, logTaskEvent, taskHistory, isSyncing, breakTimer, setBreakTimer } = useTasks();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -2277,6 +2371,7 @@ export default function TasksScreen() {
   const [historyTask, setHistoryTask] = useState(null);
   const [historyNewCompletions, setHistoryNewCompletions] = useState(0); // count of new done/did_my_best entries
   const [rewardQueue, setRewardQueue] = useState([]); // queue of {task, intent} for sequential rolls
+  const [bulkRollCount, setBulkRollCount] = useState(0);
   
   // Advanced Filtering
   const [filterEnergy, setFilterEnergy] = useState([]);
@@ -2292,11 +2387,15 @@ export default function TasksScreen() {
   const [showTagMenu, setShowTagMenu] = useState(false);
   const [viewingNote, setViewingNote] = useState(null);
 
-  // Self-healing: Correct any mismatched streaks on load
+  // Self-healing: Correct any mismatched streaks and ensure unique IDs on load
   useEffect(() => {
     if (tasks.length > 0) {
-      let changed = false;
-      const fixed = tasks.map(t => {
+      // 1. Ensure IDs are unique across the entire tree
+      const { result: uniqueTasks, changed: idsChanged } = ensureUniqueIds(tasks);
+
+      // 2. Correct any mismatched streaks
+      let changed = idsChanged;
+      const fixed = uniqueTasks.map(t => {
         const correct = calculateTaskStreak(t.statusHistory || {});
         if (t.streak !== correct) {
           changed = true;
@@ -2304,6 +2403,7 @@ export default function TasksScreen() {
         }
         return t;
       });
+
       if (changed) setTasks(fixed);
     }
   }, []); // Run once on mount
@@ -2348,6 +2448,9 @@ export default function TasksScreen() {
         const h = t.statusHistory?.[todayStr];
         return h === 'done' || h === 'did_my_best';
       }
+      if (filterStatus.includes('one_off')) {
+        if (!t.frequency) return true;
+      }
       return false;
     });
   }
@@ -2377,8 +2480,10 @@ export default function TasksScreen() {
       .filter(t => (t.streak || 0) >= 2)
       .sort((a, b) => (b.streak || 0) - (a.streak || 0));
   } else {
-    // Sort by status order
+    // Sort by: Urgent (top) -> Priority -> Status order
     filtered = [...filtered].sort((a, b) => {
+      if (a.isUrgent !== b.isUrgent) return a.isUrgent ? -1 : 1;
+      if (a.isPriority !== b.isPriority) return a.isPriority ? -1 : 1;
       return STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status);
     });
   }
@@ -2622,29 +2727,39 @@ export default function TasksScreen() {
         // Save all changes EXCEPT status, then trigger completion modal
         setTasks(prev => prev.map(t => String(t.id) === String(draft.id) ? { ...draft, status: existing.status } : t));
         setEditingTask(null);
-        setTimeout(() => setCompletingTask({ ...draft, intent: draft.status }), 100); // Pass intent so rewards/history work
+        setTimeout(() => {
+          if (subtaskRolls >= 1) {
+            setBulkRollCount(subtaskRolls + 1);
+          } else {
+            setCompletingTask({ ...draft, intent: draft.status });
+          }
+        }, 150); // Increased timeout for web platform consistency
         return;
       }
     }
 
     setTasks(prev => draft.id
       ? prev.map(t => String(t.id) === String(draft.id) ? draft : t)
-      : [...prev, { ...draft, id: String(nextTaskId++) }]
+      : [...prev, { ...draft, id: generateId() }]
     );
     setEditingTask(null);
 
     // Bank rolls for subtasks checked off during editing
     if (subtaskRolls > 0) {
-      const rollItems = Array.from({ length: subtaskRolls }, () => ({
-        ...draft,
-        intent: 'done',
-        parentTaskId: null,
-        isSubtaskRoll: true,
-      }));
-      setTimeout(() => {
-        setCompletingTask(rollItems[0]);
-        if (rollItems.length > 1) setRewardQueue(rollItems.slice(1));
-      }, 150);
+      if (subtaskRolls >= 2) {
+        setBulkRollCount(subtaskRolls);
+      } else {
+        const rollItems = Array.from({ length: subtaskRolls }, () => ({
+          ...draft,
+          intent: 'done',
+          parentTaskId: null,
+          isSubtaskRoll: true,
+        }));
+        setTimeout(() => {
+          setCompletingTask(rollItems[0]);
+          if (rollItems.length > 1) setRewardQueue(rollItems.slice(1));
+        }, 150);
+      }
     }
   }
   function deleteTask(id) {
@@ -2653,9 +2768,9 @@ export default function TasksScreen() {
   }
   function importTasks(payload, isJson = false) {
     if (isJson) {
-      setTasks(prev => [...prev, ...payload.map(obj => ({ ...BLANK(), ...obj, id: String(nextTaskId++) }))]);
+      setTasks(prev => [...prev, ...payload.map(obj => ({ ...BLANK(), ...obj, id: generateId() }))]);
     } else {
-      setTasks(prev => [...prev, ...payload.map(title => ({ ...BLANK(), id: String(nextTaskId++), title }))]);
+      setTasks(prev => [...prev, ...payload.map(title => ({ ...BLANK(), id: generateId(), title }))]);
     }
   }
 
@@ -2834,6 +2949,21 @@ export default function TasksScreen() {
               >
                 <Text style={{ fontSize: 12, fontWeight: '600', color: filterStreak ? '#fff' : '#ef4444' }}>🔥 Streak</Text>
                 <Text style={{ fontSize: 11, fontWeight: '700', color: filterStreak ? 'rgba(255,255,255,0.7)' : '#ef444480' }}>{streakCount}</Text>
+              </TouchableOpacity>
+            );
+          })()}
+          {(() => {
+            const oneOffCount = tasks.filter(t => !t.frequency).length;
+            if (oneOffCount === 0) return null;
+            const active = filterStatus.includes('one_off');
+            return (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: active ? '#6366f1' : '#9ca3af40', backgroundColor: active ? '#6366f1' : '#fff' }}
+                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== 'one_off') : [...prev, 'one_off'])}
+              >
+                <Ionicons name="infinite-outline" size={10} color={active ? '#fff' : '#6366f1'} />
+                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : '#4b5563' }}>One-off</Text>
+                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : '#9ca3af80' }}>{oneOffCount}</Text>
               </TouchableOpacity>
             );
           })()}
@@ -3042,6 +3172,13 @@ export default function TasksScreen() {
         onComplete={handleTaskCompleting}
       />
 
+      <EfficiencyRollModal
+        visible={bulkRollCount > 0}
+        rolls={bulkRollCount}
+        onClose={() => setBulkRollCount(0)}
+        onFinish={() => setBulkRollCount(0)}
+      />
+
       {/* History modal — derive live task from tasks state so statusHistory is always fresh */}
       {historyTask && (() => {
         const liveHistoryTask = tasks.find(t => t.id === historyTask);
@@ -3057,15 +3194,19 @@ export default function TasksScreen() {
               setHistoryTask(null);
               setHistoryNewCompletions(0);
               if (count > 0) {
-                const items = Array.from({ length: count }, () => ({
-                  ...taskRef,
-                  intent: 'done',
-                  parentTaskId: null,
-                  _isHistoryCompletion: true,
-                  _dateKey: getLocalDateKey(),
-                }));
-                setCompletingTask(items[0]);
-                if (items.length > 1) setRewardQueue(items.slice(1));
+                if (count >= 2) {
+                  setBulkRollCount(count);
+                } else {
+                  const items = Array.from({ length: count }, () => ({
+                    ...taskRef,
+                    intent: 'done',
+                    parentTaskId: null,
+                    _isHistoryCompletion: true,
+                    _dateKey: getLocalDateKey(),
+                  }));
+                  setCompletingTask(items[0]);
+                  if (items.length > 1) setRewardQueue(items.slice(1));
+                }
               }
             }}
             onUpdateHistory={(taskId, date, status) => {
@@ -3134,7 +3275,29 @@ export default function TasksScreen() {
 
       {showScrollTop && <ScrollToTop scrollRef={listRef} />}
       
-      <ViewNoteModal note={viewingNote} onClose={() => setViewingNote(null)} />
+      <ViewNoteModal 
+        note={viewingNote} 
+        onClose={() => setViewingNote(null)} 
+      />
+
+      {breakTimer && (
+        <View style={styles.floatingTimer}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <View style={styles.timerCircle}>
+              <Text style={styles.timerText}>
+                {Math.floor(breakTimer.remainingSeconds / 60)}:{(breakTimer.remainingSeconds % 60).toString().padStart(2, '0')}
+              </Text>
+            </View>
+            <View>
+              <Text style={styles.timerLabel}>Break Time</Text>
+              <Text style={styles.timerSub}>Relax and recharge</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={() => setBreakTimer(null)} style={styles.timerClose}>
+            <Ionicons name="close-circle" size={24} color="#ef4444" />
+          </TouchableOpacity>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -3149,6 +3312,55 @@ const styles = StyleSheet.create({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: 24, fontWeight: '700', color: '#111827' },
+  finalXp: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#10b981',
+  },
+  floatingTimer: {
+    position: 'absolute',
+    bottom: 20,
+    left: 20,
+    right: 20,
+    backgroundColor: '#1f2937',
+    borderRadius: 20,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  timerCircle: {
+    backgroundColor: '#374151',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#0ea5e9',
+  },
+  timerText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '800',
+    fontVariant: ['tabular-nums'],
+  },
+  timerLabel: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  timerSub: {
+    color: '#9ca3af',
+    fontSize: 12,
+  },
+  timerClose: {
+    padding: 4,
+  },
   headerActions:{ flexDirection: 'row', alignItems: 'center', gap: 4 },
   iconBtn:      { padding: 8, borderRadius: 8 },
   addBtn:       { flexDirection: 'row', alignItems: 'center', backgroundColor: '#6366f1', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 7, gap: 4, marginLeft: 4 },

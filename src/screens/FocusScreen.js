@@ -546,8 +546,8 @@ const ICON_PICKER_ICONS = [
   'bulb-outline','flash-outline','battery-charging-outline','wifi-outline','bluetooth-outline',
   'brush-outline','pencil-outline','create-outline','cut-outline','build-outline',
   'construct-outline','hammer-outline','flask-outline','beaker-outline','telescope-outline',
-  'dice-outline','game-controller-outline','puzzle-outline','chess-outline',
-  'paw-outline','bug-outline','fish-outline','logo-github-outline','logo-youtube-outline',
+  'dice-outline','game-controller-outline','extension-puzzle-outline',
+  'paw-outline','bug-outline','fish-outline','logo-github','logo-youtube',
 ];
 
 function IconPickerModal({ visible, current, onSelect, onClose }) {
@@ -675,7 +675,22 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
                   </TouchableOpacity>
                 </View>
 
-                <View style={{ paddingLeft: 34 }}>
+                <View style={{ paddingLeft: 34, marginTop: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 }}>Mark as Productive Time</Text>
+                    <TouchableOpacity 
+                      onPress={() => updateCat(idx, 'isProductive', !cat.isProductive)}
+                      style={{ 
+                        width: 40, height: 22, borderRadius: 11, 
+                        backgroundColor: cat.isProductive ? colors.primary : '#e5e7eb',
+                        padding: 2,
+                        flexDirection: cat.isProductive ? 'row-reverse' : 'row'
+                      }}
+                    >
+                      <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff' }} />
+                    </TouchableOpacity>
+                  </View>
+                  
                   <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 }}>Category Color</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
                     {CATEGORY_COLORS.map(c => (
@@ -1240,6 +1255,24 @@ export default function FocusScreen() {
     .sort((a, b) => b.date - a.date)
     .slice(0, 20);
 
+  // ── Productivity stats calculation ──────────────────────────────────────
+  const getTimeSummary = (periodEntries) => {
+    const total = periodEntries.reduce((acc, e) => acc + e.minutes, 0);
+    const productive = periodEntries.reduce((acc, e) => {
+      const cat = categories.find(c => c.key === e.category);
+      return acc + (cat?.isProductive ? e.minutes : 0);
+    }, 0);
+    return {
+      total,
+      productive,
+      nonProductive: total - productive,
+      pct: total > 0 ? Math.round((productive / total) * 100) : 0
+    };
+  };
+
+  const todayStats = getTimeSummary(todayEntries);
+  const weekStats  = getTimeSummary(entries.filter(e => new Date(e.date) >= weekStart));
+
   return (
     <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
       <ScrollView 
@@ -1364,8 +1397,20 @@ export default function FocusScreen() {
         {/* ── Today Summary ── */}
         <View style={styles.todayCard}>
           <View style={styles.todayTop}>
-            <Text style={styles.todayLabel}>Today</Text>
-            <Text style={styles.todayTotal}>{fmtDuration(todayTotal)}</Text>
+            <View>
+              <Text style={styles.todayLabel}>Today</Text>
+              <Text style={styles.todayTotal}>{fmtDuration(todayTotal)}</Text>
+            </View>
+            <View style={styles.todaySummaryBreakdown}>
+              <View style={styles.todaySummaryItem}>
+                <View style={[styles.summaryDot, { backgroundColor: '#10b981' }]} />
+                <Text style={styles.summaryText}>Productive: {fmtDuration(todayStats.productive)}</Text>
+              </View>
+              <View style={styles.todaySummaryItem}>
+                <View style={[styles.summaryDot, { backgroundColor: '#ef4444' }]} />
+                <Text style={styles.summaryText}>Other: {fmtDuration(todayStats.nonProductive)}</Text>
+              </View>
+            </View>
           </View>
           <CategoryBreakdown 
             entries={entries} 
@@ -1427,6 +1472,49 @@ export default function FocusScreen() {
             })}
           </View>
         )}
+
+        {/* ── Productivity Score Card ── */}
+        <View style={styles.productivityCard}>
+          <View style={styles.productivityHeader}>
+            <View>
+              <Text style={styles.productivityTitle}>Productivity Score</Text>
+              <Text style={styles.productivitySub}>{statsPeriod === 'week' ? 'This Week' : 'Today'}</Text>
+            </View>
+            <View style={styles.productivityBadge}>
+              <Text style={styles.productivityBadgeText}>
+                {statsPeriod === 'week' ? weekStats.pct : todayStats.pct}%
+              </Text>
+            </View>
+          </View>
+          
+          <View style={styles.productivityBarBg}>
+            <View 
+              style={[
+                styles.productivityBarFill, 
+                { 
+                  width: `${statsPeriod === 'week' ? weekStats.pct : todayStats.pct}%`, 
+                  backgroundColor: colors.primary 
+                }
+              ]} 
+            />
+          </View>
+          
+          <View style={styles.productivityStatsRow}>
+            <View style={styles.productivityStat}>
+              <Text style={styles.productivityStatVal}>
+                {fmtDuration(statsPeriod === 'week' ? weekStats.productive : todayStats.productive)}
+              </Text>
+              <Text style={styles.productivityStatLabel}>Productive</Text>
+            </View>
+            <View style={styles.productivityStatDivider} />
+            <View style={styles.productivityStat}>
+              <Text style={styles.productivityStatVal}>
+                {fmtDuration(statsPeriod === 'week' ? weekStats.nonProductive : todayStats.nonProductive)}
+              </Text>
+              <Text style={styles.productivityStatLabel}>Entertainment</Text>
+            </View>
+          </View>
+        </View>
 
         {/* ── Stats Period Selector ── */}
         <View style={styles.statsTabs}>
@@ -2091,9 +2179,29 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   todayTotal: {
-    fontSize: 20,
-    fontWeight: '800',
+    fontSize: 22,
+    fontWeight: '900',
     color: colors.primary,
+    marginTop: 2,
+  },
+  todaySummaryBreakdown: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  todaySummaryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  summaryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  summaryText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.textSecondary,
   },
 
   // Stats tabs
@@ -2423,10 +2531,94 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 4,
   },
-  goalEditBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
+  addManualText: {
+    fontSize: 14,
+    fontWeight: '700',
     color: colors.primary,
+  },
+
+  // Productivity Card
+  productivityCard: {
+    marginHorizontal: 20,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  productivityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  productivityTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: '#111827',
+  },
+  productivitySub: {
+    fontSize: 12,
+    color: '#6b7280',
+    fontWeight: '600',
+  },
+  productivityBadge: {
+    backgroundColor: colors.primary + '15',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  productivityBadgeText: {
+    color: colors.primary,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+  productivityBarBg: {
+    height: 10,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 5,
+    marginBottom: 16,
+    overflow: 'hidden',
+  },
+  productivityBarFill: {
+    height: 10,
+    borderRadius: 5,
+  },
+  productivityStatsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: '#f3f4f6',
+    paddingTop: 16,
+  },
+  productivityStat: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  productivityStatDivider: {
+    width: 1,
+    height: 24,
+    backgroundColor: '#f3f4f6',
+  },
+  productivityStatVal: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#374151',
+    marginBottom: 2,
+  },
+  productivityStatLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#9ca3af',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   categoryGoalRow: {
     marginBottom: 16,

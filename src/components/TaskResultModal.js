@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, Modal, TouchableOpacity, Animated, Easing } fro
 import { Ionicons } from '@expo/vector-icons';
 import { Audio } from 'expo-av';
 import { useEconomy } from '../lib/EconomyContext';
+import { useTasks } from '../lib/TasksContext';
 import { colors } from '../theme';
 
 const OPTIONS = [
@@ -16,6 +17,7 @@ const OPTIONS = [
 
 export default function TaskResultModal({ visible, task, onClose, onComplete }) {
   const { addReward } = useEconomy();
+  const { startBreak } = useTasks();
   const [step, setStep] = useState('select'); // select | roll | result
   const [selectedOpt, setSelectedOpt] = useState(null);
   const [baseRoll, setBaseRoll] = useState(1);
@@ -179,6 +181,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
                   <Text style={styles.calcVal}>{multiRoll}</Text>
                 </View>
               </View>
+
 
               <View style={styles.finalBox}>
                 <Text style={styles.finalPts}>+{baseRoll * multiRoll} Points</Text>

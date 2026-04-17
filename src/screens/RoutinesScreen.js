@@ -487,7 +487,16 @@ export default function RoutinesScreen() {
   const closeAll  = () => { setNavScreen(null); setOpenRoutineId(null); };
 
   const handleUpdateTask = useCallback((taskId, newStatus) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: newStatus } : t));
+    const today = getLocalDateKey();
+    setTasks(prev => prev.map(t => 
+      t.id === taskId 
+        ? { 
+            ...t, 
+            status: newStatus, 
+            statusHistory: { ...(t.statusHistory || {}), [today]: newStatus } 
+          } 
+        : t
+    ));
   }, [setTasks]);
 
   const handleAddTask = (taskIds) => {

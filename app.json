@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "ADHDice",
+    "name": "ADHD Dice Native",
     "slug": "adhddice-native",
-    "version": "1.0.0",
+    "version": "3.1.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

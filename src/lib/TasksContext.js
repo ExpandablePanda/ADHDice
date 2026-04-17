@@ -101,6 +101,9 @@ export function TasksProvider({ children }) {
   const [taskHistory, setTaskHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+
+  // Break Timer State
+  const [breakTimer, setBreakTimer] = useState(null); // { remainingSeconds: number, totalSeconds: number }
   
   // Track the timestamp of the last local change and the last saved state hash
   const lastLocalChangeRef = useRef(0);
@@ -358,10 +361,59 @@ export function TasksProvider({ children }) {
     setTaskHistory(prev => [event, ...prev].slice(0, 1000));
   };
 
+  const startBreak = (minutes, prizeInfo = null) => {
+    const seconds = Math.floor(minutes * 60);
+    // prizeInfo should be { name: string, count: number }
+    setBreakTimer({ remainingSeconds: seconds, totalSeconds: seconds, linkedPrize: prizeInfo });
+  };
+
+  const adjustBreakTime = (deltaSeconds) => {
+    setBreakTimer(prev => {
+      if (!prev) return null;
+      const newRemaining = Math.max(0, prev.remainingSeconds + deltaSeconds);
+      if (newRemaining <= 0) return null;
+      return { 
+        ...prev, 
+        remainingSeconds: newRemaining, 
+        totalSeconds: Math.max(prev.totalSeconds, newRemaining) 
+      };
+    });
+  };
+
+  const linkPrizeToBreak = (prizeInfo) => {
+    setBreakTimer(prev => {
+      if (!prev) return null;
+      // prizeInfo can be { name: string, count: number } or null
+      return { ...prev, linkedPrize: prizeInfo };
+    });
+  };
+
+  useEffect(() => {
+    let interval;
+    if (breakTimer && breakTimer.remainingSeconds > 0) {
+      interval = setInterval(() => {
+        setBreakTimer(prev => {
+          if (!prev || prev.remainingSeconds <= 1) {
+            clearInterval(interval);
+            return null;
+          }
+          return { ...prev, remainingSeconds: prev.remainingSeconds - 1 };
+        });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [breakTimer === null]); // only re-run effect when timer starts/stops
+
   if (!loaded) return null;
 
   return (
-    <TasksContext.Provider value={{ tasks, setTasks, taskHistory, logTaskEvent, isSyncing }}>
+    <TasksContext.Provider value={{ 
+      tasks, setTasks, 
+      taskHistory, logTaskEvent, 
+      isSyncing,
+      breakTimer, setBreakTimer, startBreak,
+      adjustBreakTime, linkPrizeToBreak
+    }}>
       {children}
     </TasksContext.Provider>
   );

@@ -359,7 +359,7 @@ export default function SettingsScreen() {
         </View>
 
         <Text style={[styles.sectionLabel, { textAlign: 'center', marginTop: 40, color: colors.textMuted }]}>
-          V.03.04{'\n'}Local Storage Build
+          V.3.2.0{'\n'}Local Storage Build
         </Text>
 
       </ScrollView>
