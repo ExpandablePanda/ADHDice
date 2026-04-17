@@ -25,6 +25,7 @@ import { ProfileProvider, useProfile } from './src/lib/ProfileContext';
 import { SettingsProvider } from './src/lib/SettingsContext';
 import AuthScreen from './src/screens/AuthScreen';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { APP_VERSION } from './src/lib/Constants';
 
 // ── Error Boundary for Recovery ─────────────────────────────────────────────
 
@@ -121,7 +122,6 @@ function RPGHeaderRight() {
   );
 }
 
-const APP_VERSION = 'V.3.2.0';
 
 function LogoHeaderLeft() {
   const { colors } = useTheme();

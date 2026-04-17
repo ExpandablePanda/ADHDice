@@ -2787,7 +2787,6 @@ export default function TasksScreen() {
           <Ionicons name="checkbox-outline" size={24} color="#6366f1" />
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
             <Text style={styles.headerTitle}>Tasks</Text>
-            <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textMuted, marginTop: 4 }}>{APP_VERSION}</Text>
             {isSyncing ? (
               <View style={{ backgroundColor: colors.primary + '20', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 12, flexDirection: 'row', alignItems: 'center' }}>
                 <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primary, marginRight: 6 }} />
