@@ -1,0 +1,22 @@
+
+> adhdice@3.4.1 build
+> npx expo export --platform web
+
+env: load .env
+env: export EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_ANON_KEY
+Starting Metro Bundler
+Static rendering is enabled. Learn more: https://docs.expo.dev/router/reference/static-rendering/
+Error: Unable to resolve module expo-router/node/render.js from /Users/andrewmarkschaffer/App Development/adhddice-native/.: expo-router/node/render.js could not be found within the project or in these directories:
+  node_modules
+Error: Unable to resolve module expo-router/node/render.js from /Users/andrewmarkschaffer/App Development/adhddice-native/.: expo-router/node/render.js could not be found within the project or in these directories:
+  node_modules
+    at ModuleResolver.resolveDependency (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/metro/src/node-haste/DependencyGraph/ModuleResolution.js:172:15)
+    at DependencyGraph.resolveDependency (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/metro/src/node-haste/DependencyGraph.js:252:43)
+    at /Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/metro/src/lib/transformHelpers.js:163:21
+    at Server._resolveRelativePath (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/metro/src/Server.js:1259:12)
+    at MetroBundlerDevServer.resolveRelativePathAsync (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:1875:12)
+    at MetroBundlerDevServer.metroLoadModuleContents (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:631:35)
+    at MetroBundlerDevServer.ssrLoadModuleContents (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:704:48)
+    at MetroBundlerDevServer.ssrLoadModule (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:534:17)
+    at MetroBundlerDevServer.getStaticRenderFunctionAsync (/Users/andrewmarkschaffer/App Development/adhddice-native/node_modules/expo/node_modules/@expo/cli/src/start/server/metro/MetroBundlerDevServer.ts:384:7)
+    at async Promise.all (index 1)
