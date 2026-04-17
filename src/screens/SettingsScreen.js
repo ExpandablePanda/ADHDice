@@ -8,6 +8,7 @@ import { useProfile } from '../lib/ProfileContext';
 import { useSettings } from '../lib/SettingsContext';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ScrollToTop from '../components/ScrollToTop';
+import { APP_VERSION } from '../lib/Constants';
 
 export default function SettingsScreen() {
   const { resetEconomy, cheatEconomy } = useEconomy();
@@ -359,7 +360,7 @@ export default function SettingsScreen() {
         </View>
 
         <Text style={[styles.sectionLabel, { textAlign: 'center', marginTop: 40, color: colors.textMuted }]}>
-          V.3.3.0{'\n'}Local Storage Build
+          {APP_VERSION}{'\n'}Local Storage Build
         </Text>
 
       </ScrollView>

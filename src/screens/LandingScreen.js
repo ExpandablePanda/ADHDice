@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useProfile } from '../lib/ProfileContext';
+import { APP_VERSION } from '../lib/Constants';
 
 export default function LandingScreen() {
   const { profiles, selectProfile } = useProfile();
@@ -42,7 +43,7 @@ export default function LandingScreen() {
         </View>
 
         {/* Version */}
-        <Text style={styles.version}>V.3.2.0</Text>
+        <Text style={styles.version}>{APP_VERSION}</Text>
       </View>
     </SafeAreaView>
   );
