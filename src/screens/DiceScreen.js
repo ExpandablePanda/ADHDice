@@ -325,7 +325,7 @@ export default function DiceScreen() {
   const [rolling, setRolling]       = useState(false);
   const [result, setResult]         = useState(null); // { face, prize }
   const [showManager, setShowManager] = useState(false);
-  const { startBreak, breakTimer, adjustBreakTime, linkPrizeToBreak } = useTasks();
+  const { startBreak, breakTimer, setBreakTimer, adjustBreakTime, linkPrizeToBreak } = useTasks();
   const [breakInput, setBreakInput] = useState('10');
   const [showPrizeLinker, setShowPrizeLinker] = useState(false);
   const [pendingPrize, setPendingPrize] = useState(null); // { name, count }
@@ -1003,29 +1003,30 @@ export default function DiceScreen() {
             }}
             style={[styles.breakClock, (breakTimer || pendingPrize) && { borderColor: colors.primary }]} 
           >
-            {breakTimer?.linkedPrize ? (
-              <View style={{ alignItems: 'center', paddingHorizontal: 10 }}>
-                <Text style={styles.linkedPrizeLabel}>TRACKING</Text>
-                <Text style={styles.linkedPrizeText} numberOfLines={1} adjustFontSizeToFit>
-                  {breakTimer.linkedPrize.count > 1 ? `${breakTimer.linkedPrize.count}x ` : ''}{breakTimer.linkedPrize.name}
-                </Text>
-                <Text style={styles.clockTime}>{Math.floor(localRemaining / 60)}:{String(localRemaining % 60).padStart(2, '0')}</Text>
-              </View>
-            ) : pendingPrize ? (
-              <View style={{ alignItems: 'center', paddingHorizontal: 10 }}>
-                <Text style={styles.linkedPrizeLabel}>LINKED</Text>
-                <Text style={styles.linkedPrizeText} numberOfLines={1} adjustFontSizeToFit>
-                  {pendingPrize.count > 1 ? `${pendingPrize.count}x ` : ''}{pendingPrize.name}
-                </Text>
-                <Text style={[styles.clockSub, { fontSize: 11 }]} numberOfLines={1} adjustFontSizeToFit>Select Time Below</Text>
-              </View>
-            ) : (
-              <>
-                <Ionicons name="link-outline" size={24} color={colors.primary} style={{ marginBottom: 4 }} />
-                <Text style={styles.clockTime}>Link</Text>
-                <Text style={[styles.clockSub, { fontSize: 13 }]} numberOfLines={1} adjustFontSizeToFit>Reward</Text>
-              </>
-            )}
+            <View style={styles.breakClockInner}>
+              {breakTimer?.linkedPrize ? (
+                <>
+                  <Text style={styles.linkedPrizeLabel}>TRACKING</Text>
+                  <Text style={styles.linkedPrizeText} numberOfLines={2} adjustFontSizeToFit>
+                    {breakTimer.linkedPrize.count > 1 ? `${breakTimer.linkedPrize.count}x ` : ''}{breakTimer.linkedPrize.name}
+                  </Text>
+                  <Text style={styles.clockTime}>{Math.floor(localRemaining / 60)}:{String(localRemaining % 60).padStart(2, '0')}</Text>
+                </>
+              ) : pendingPrize ? (
+                <>
+                  <Text style={styles.linkedPrizeLabel}>LINKED</Text>
+                  <Text style={styles.linkedPrizeText} numberOfLines={2} adjustFontSizeToFit>
+                    {pendingPrize.count > 1 ? `${pendingPrize.count}x ` : ''}{pendingPrize.name}
+                  </Text>
+                  <Text style={[styles.clockSub, { fontSize: 11 }]} numberOfLines={2} adjustFontSizeToFit>Select Time Below</Text>
+                </>
+              ) : (
+                <>
+                  <Ionicons name="time-outline" size={32} color="#d1d5db" style={{ marginBottom: 4 }} />
+                  <Text style={styles.clockSub}>Tap to Link Reward</Text>
+                </>
+              )}
+            </View>
           </TouchableOpacity>
 
           {/* Adjustment Controls (Only if running) */}
@@ -1841,36 +1842,43 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   breakClock: {
-    width: 150, // Slightly larger
-    height: 150,
-    borderRadius: 75,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
     backgroundColor: '#fff',
     borderWidth: 4,
     borderColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
-    padding: 15, // NEW: Keep text inside the circle
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 15,
     elevation: 5,
     marginBottom: 16,
+    overflow: 'hidden',
+  },
+  breakClockInner: {
+    width: '100%',
+    paddingHorizontal: 25, // HEAVY padding to force text into the center safe-zone
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   linkedPrizeLabel: {
     fontSize: 9,
     fontWeight: '800',
     color: colors.primary,
     letterSpacing: 1,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   linkedPrizeText: {
     fontSize: 13,
     fontWeight: '700',
     color: '#374151',
     textAlign: 'center',
-    marginBottom: 4,
+    alignSelf: 'center',
+    marginBottom: 6,
     width: '100%',
-    maxHeight: 40,
+    maxHeight: 52, 
   },
   clockTime: {
     fontSize: 28,
@@ -1884,6 +1892,9 @@ const styles = StyleSheet.create({
     color: colors.primary,
     marginTop: 4,
     textTransform: 'uppercase',
+    textAlign: 'center',
+    alignSelf: 'center',
+    width: '100%',
   },
   timerAdjustRow: {
     flexDirection: 'row',
