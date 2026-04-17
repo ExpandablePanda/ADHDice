@@ -26,10 +26,10 @@
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
-      "baseUrl": "/ADHDice"
+      "baseUrl": "/ADHDice/"
     },
     "experiments": {
-      "baseUrl": "/ADHDice",
+      "baseUrl": "/ADHDice/",
       "typedRoutes": true
     },
     "plugins": [

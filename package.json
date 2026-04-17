@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "build": "npx expo export --platform web",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist",
+    "deploy": "gh-pages --nojekyll -d dist",
     "ship": "npm run deploy && git push origin main"
   },
   "dependencies": {
