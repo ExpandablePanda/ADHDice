@@ -201,6 +201,9 @@ export function TasksProvider({ children }) {
                 } else {
                   setBreakTimer(null);
                 }
+              } else if (cloud.breakTimer === null) {
+                // cloud explicitly says it's empty
+                setBreakTimer(null);
               }
             }
           }
@@ -243,6 +246,9 @@ export function TasksProvider({ children }) {
                 } else {
                   setBreakTimer(null);
                 }
+              } else {
+                // If remote says null (or undefined), stop local timer
+                setBreakTimer(null);
               }
             }
           }
