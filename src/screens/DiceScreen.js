@@ -403,6 +403,10 @@ export default function DiceScreen() {
   const [rewardPool, setRewardPool] = useState({});
   const [loaded, setLoaded]         = useState(false);
 
+  // Local state for smooth countdown ticking and alarm timing
+  const [localRemaining, setLocalRemaining] = useState(0);
+  const wasActiveRef = useRef(false);
+
   useEffect(() => {
     async function loadDice() {
       const localKey = `${storagePrefix}dice_data`;
@@ -451,24 +455,35 @@ export default function DiceScreen() {
 
   // AUTO-CLAIM LOGIC: Watch the break timer and claim the reward if it finishes
   const lastTimerState = useRef(null);
+  // EFFECT: Handle smooth ticking and Alarm/Reward trigger
   useEffect(() => {
-    // If it was active and had a prize, and now it's null (finished)
-    if (lastTimerState.current?.linkedPrize && !breakTimer) {
-      // Was it close to zero when it disappeared? (TasksContext clears at <= 1)
-      if (lastTimerState.current.remainingSeconds <= 3) {
-        const { name, count } = lastTimerState.current.linkedPrize;
-        claimReward(name, count);
-      }
+    let interval;
+    if (breakTimer && breakTimer.endTime) {
+      wasActiveRef.current = true;
+      const update = () => {
+        const rem = Math.max(0, Math.floor((breakTimer.endTime - Date.now()) / 1000));
+        setLocalRemaining(rem);
+        
+        if (rem <= 0 && wasActiveRef.current) {
+          wasActiveRef.current = false;
+          playAlarmSound();
+          if (breakTimer.linkedPrize) {
+            const { name, count } = breakTimer.linkedPrize;
+            claimReward(name, count);
+          }
+          // The context itself will eventually clear breakTimer via its own useEffect
+          // but we can help it by clearing it locally if needed.
+          setBreakTimer(null);
+        }
+      };
+      update();
+      interval = setInterval(update, 1000);
+    } else {
+      setLocalRemaining(0);
+      wasActiveRef.current = false;
     }
-    lastTimerState.current = breakTimer;
-  }, [breakTimer]);
-
-  // ALARM LOGIC: Play sound when timer hits 0
-  useEffect(() => {
-    if (breakTimer && breakTimer.remainingSeconds === 0) {
-      playAlarmSound();
-    }
-  }, [breakTimer?.remainingSeconds]);
+    return () => clearInterval(interval);
+  }, [breakTimer?.endTime]);
 
   useEffect(() => {
     if (!loaded || !dailyBoard) return;
@@ -994,7 +1009,7 @@ export default function DiceScreen() {
                 <Text style={styles.linkedPrizeText} numberOfLines={1} adjustFontSizeToFit>
                   {breakTimer.linkedPrize.count > 1 ? `${breakTimer.linkedPrize.count}x ` : ''}{breakTimer.linkedPrize.name}
                 </Text>
-                <Text style={styles.clockTime}>{Math.floor(breakTimer.remainingSeconds / 60)}:{String(breakTimer.remainingSeconds % 60).padStart(2, '0')}</Text>
+                <Text style={styles.clockTime}>{Math.floor(localRemaining / 60)}:{String(localRemaining % 60).padStart(2, '0')}</Text>
               </View>
             ) : pendingPrize ? (
               <View style={{ alignItems: 'center', paddingHorizontal: 10 }}>
@@ -1826,14 +1841,15 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   breakClock: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
+    width: 150, // Slightly larger
+    height: 150,
+    borderRadius: 75,
     backgroundColor: '#fff',
     borderWidth: 4,
     borderColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 15, // NEW: Keep text inside the circle
     shadowColor: '#000',
     shadowOpacity: 0.1,
     shadowRadius: 15,
@@ -1848,11 +1864,13 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   linkedPrizeText: {
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: '700',
     color: '#374151',
     textAlign: 'center',
-    marginBottom: 6,
+    marginBottom: 4,
+    width: '100%', // Ensure it uses the padding of the parent
+  },
     maxHeight: 38,
     width: 120, // Constrain width to circle
   },

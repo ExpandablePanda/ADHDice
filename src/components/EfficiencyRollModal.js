@@ -56,7 +56,7 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
     const results = Array.from({ length: rolls }, () => Math.floor(Math.random() * selectedDie) + 1);
     setDiceResults(results);
     
-    // Multiplier is rolled but hidden until later
+    // Multiplier is decided but hidden
     setMultiplier(Math.floor(Math.random() * 4) + 1);
 
     revealNextDie(0, results);
@@ -64,30 +64,36 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
 
   function revealNextDie(index, results) {
     if (index >= results.length) {
-      setTimeout(() => setStep('ready_mult'), 600);
+      setTimeout(() => setStep('ready_mult'), 1000);
       return;
     }
 
     setIsRollingCurrent(true);
     playRollSound();
 
-    // Roll for 1 second
+    // Roll/Animate for 1.2s to make it feel deliberate
     setTimeout(() => {
       setIsRollingCurrent(false);
       setRevealedCount(index + 1);
-      // Wait another 800ms before starting next roll
-      setTimeout(() => {
+      
+      // Pause for 600ms after reveal before starting next sequence
+      if (index + 1 < results.length) {
+        setTimeout(() => {
+          revealNextDie(index + 1, results);
+        }, 600);
+      } else {
         revealNextDie(index + 1, results);
-      }, 800);
-    }, 1000);
+      }
+    }, 1200);
   }
 
   function handleRollMultiplier() {
     setStep('rolling_mult');
     playRollSound();
+    // D4 roll animation for 2 seconds
     setTimeout(() => {
       setStep('results');
-    }, 1500);
+    }, 2000);
   }
 
   const sum = diceResults.reduce((acc, curr) => acc + curr, 0);
@@ -194,14 +200,14 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
 
           {step === 'rolling_mult' && (
             <>
-              <Text style={styles.title}>Final Step...</Text>
+              <Text style={styles.title}>Final Multiplier...</Text>
               <View style={styles.sumResultArea}>
-                <Text style={styles.sumLabel}>Current Total</Text>
+                <Text style={styles.sumLabel}>Static Total</Text>
                 <Text style={styles.sumVal}>{sum}</Text>
               </View>
               <View style={{ alignItems: 'center', marginVertical: 40 }}>
-                <Text style={[styles.sumLabel, { color: '#8b5cf6' }]}>ROLLING MULTIPLIER</Text>
-                <Ionicons name="dice" size={80} color="#8b5cf6" />
+                <Text style={[styles.sumLabel, { color: '#8b5cf6' }]}>ROLLING D4</Text>
+                <AnimatedRollingDice size={100} color="#8b5cf6" />
               </View>
             </>
           )}
@@ -245,6 +251,34 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
         </ScrollView>
       </ModalScreen>
     </Modal>
+  );
+}
+
+function AnimatedRollingDice({ size, color }) {
+  const rotateAnim = useRef(new Animated.Value(0)).current;
+  
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(rotateAnim, {
+          toValue: 1,
+          duration: 400,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }),
+      ])
+    ).start();
+  }, [rotateAnim]);
+
+  const spin = rotateAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ['0deg', '360deg'],
+  });
+
+  return (
+    <Animated.View style={{ transform: [{ rotate: spin }] }}>
+      <Ionicons name="dice" size={size} color={color} />
+    </Animated.View>
   );
 }
 

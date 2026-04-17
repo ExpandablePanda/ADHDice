@@ -437,25 +437,15 @@ export function TasksProvider({ children }) {
     });
   };
 
+  // Removed global ticking to allow stable state for persistence.
+  // Remaining time is now calculated by UI components from endTime.
   useEffect(() => {
-    let interval;
     if (breakTimer && breakTimer.endTime) {
-      interval = setInterval(() => {
-        const remaining = Math.max(0, Math.floor((breakTimer.endTime - Date.now()) / 1000));
-        
-        if (remaining <= 0) {
-          setBreakTimer(null);
-          clearInterval(interval);
-          return;
-        }
-
-        setBreakTimer(prev => {
-          if (!prev) return null;
-          return { ...prev, remainingSeconds: remaining };
-        });
-      }, 1000);
+      const now = Date.now();
+      if (now >= breakTimer.endTime) {
+         setBreakTimer(null);
+      }
     }
-    return () => clearInterval(interval);
   }, [breakTimer?.endTime]);
 
   if (!loaded) return null;
