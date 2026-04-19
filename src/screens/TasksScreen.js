@@ -736,7 +736,7 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, on
 function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onViewNote, selectedSubtasks = {}, onToggleSubselect, onBulkSubtaskStatus }) {
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [expanded, setExpanded] = useState(true);
-  const [openSubPicker, setOpenSubPicker] = useState(null); // subtask id with picker open
+  const [openSubPickers, setOpenSubPickers] = useState(new Set()); // Set of subtask IDs with pickers open
   const { notes } = useNotes();
   const { dayStartTime } = useSettings();
 
@@ -863,19 +863,21 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
             return (
               <View>
                 {taskSelected.size > 0 && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10, paddingLeft: 4 }}>
-                    <Text style={{ fontSize: 11, fontWeight: '700', color: '#6366f1' }}>{taskSelected.size} Selected</Text>
-                    {['done', 'did_my_best', 'missed', 'pending'].map(st => (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 12, paddingLeft: 4, flexWrap: 'wrap' }}>
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: '#6366f1', textTransform: 'uppercase', marginRight: 4 }}>{taskSelected.size} Selected</Text>
+                    {['done', 'did_my_best', 'missed', 'active', 'pending', 'upcoming'].map(st => (
                       <TouchableOpacity 
                         key={st} 
-                        style={{ paddingHorizontal: 6, paddingVertical: 3, borderRadius: 5, backgroundColor: STATUSES[st].color + '15' }}
+                        style={{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8, backgroundColor: STATUSES[st].color }}
                         onPress={() => onBulkSubtaskStatus(task.id, st)}
                       >
-                        <Text style={{ fontSize: 10, fontWeight: '700', color: STATUSES[st].color }}>{STATUSES[st].label}</Text>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>
+                          {STATUSES[st].label}
+                        </Text>
                       </TouchableOpacity>
                     ))}
-                    <TouchableOpacity onPress={() => onBulkSubtaskStatus(task.id, null)} style={{ marginLeft: 'auto' }}>
-                      <Ionicons name="close-circle" size={16} color="#9ca3af" />
+                    <TouchableOpacity onPress={() => onBulkSubtaskStatus(task.id, null)} style={{ marginLeft: 'auto', padding: 4 }}>
+                      <Ionicons name="close-circle" size={20} color="#9ca3af" />
                     </TouchableOpacity>
                   </View>
                 )}
@@ -883,7 +885,7 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
                   return subs.map(s => {
                     const subStatusKey = s.status || 'pending';
                     const subCfg = STATUSES[subStatusKey] || STATUSES.pending;
-                    const isPickerOpen = openSubPicker === s.id;
+                    const isPickerOpen = openSubPickers.has(s.id);
                     const isSelected = taskSelected.has(s.id);
                     
                     return (
@@ -895,7 +897,12 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
                               if (taskSelected.size > 0) {
                                 onToggleSubselect(task.id, s.id);
                               } else {
-                                setOpenSubPicker(isPickerOpen ? null : s.id); 
+                                setOpenSubPickers(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(s.id)) next.delete(s.id);
+                                  else next.add(s.id);
+                                  return next;
+                                });
                                 setShowStatusPicker(false); 
                               }
                             }}
@@ -923,7 +930,15 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
                                 <TouchableOpacity
                                   key={st}
                                   style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 7, backgroundColor: active ? cfg.color : '#f3f4f6' }}
-                                  onPress={(e) => { e.stopPropagation(); onConfirmStatus(task.id, st, s.id); setOpenSubPicker(null); }}
+                                  onPress={(e) => { 
+                                    e.stopPropagation(); 
+                                    onConfirmStatus(task.id, st, s.id); 
+                                    setOpenSubPickers(prev => {
+                                      const next = new Set(prev);
+                                      next.delete(s.id);
+                                      return next;
+                                    });
+                                  }}
                                 >
                                   <Text style={{ fontSize: 11, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
                                 </TouchableOpacity>
@@ -2718,100 +2733,90 @@ export default function TasksScreen() {
       if (!subject) return;
     }
 
-    if (!targetStatus) targetStatus = STATUSES[subject.status || 'pending'].next;
-    
-    if (targetStatus === 'done' || targetStatus === 'did_my_best') {
-      // Only stamp the parent's statusHistory when completing the main task itself.
-      if (!subtaskId) {
-        // Use getAppDayKey to ensure 1 AM completions go to "yesterday"
-        const appDay = getAppDayKey(dayStartTime);
-        setTasks(prev => prev.map(t => {
-          if (t.id === taskId) {
-            return { ...t, statusHistory: { ...(t.statusHistory || {}), [appDay]: targetStatus } };
-          }
-          return t;
-        }));
+    const appDay = getAppDayKey(dayStartTime);
+
+    // ── EARLY SUBTASK HANDLING ───────────────────────────────────────────────
+    if (subtaskId) {
+      if (targetStatus === 'done' || targetStatus === 'did_my_best') {
+        addBankedReward({
+          taskId: taskId,
+          subtaskId: subtaskId,
+          title: subject.title,
+          intent: targetStatus,
+          points: Math.max(1, Math.floor((subject.points || 10) * 0.5)),
+          xp: Math.max(1, Math.floor((subject.xp || 20) * 0.5)),
+        });
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, targetStatus) } : t));
+        return;
       }
+      if (targetStatus === 'missed') {
+        Alert.alert("Missed Subtask", `Mark "${subject.title}" as missed?`, [
+          { text: "Cancel", style: "cancel" },
+          { text: "Confirm Missed", style: "destructive", onPress: () => {
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, 'missed') } : t));
+            logTaskEvent(subject, 'missed');
+          }}
+        ]);
+        return;
+      }
+      // Handle reset/pending
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, targetStatus) } : t));
+      return;
+    }
+
+    // ── MAIN TASK HANDLING ───────────────────────────────────────────────────
+    if (targetStatus === 'done' || targetStatus === 'did_my_best') {
+      const existing = tasks.find(t => t.id === taskId);
+      if (existing && existing.status === 'first_step') {
+        addFreeRoll(1);
+        Alert.alert("Momentum Reward!", "You completed your 1st Step! Here's a free Dice Roll.");
+      }
+
       setShuffleTask(null);
-      // Pass the dateKey to the completion handler for reward banking
       setCompletingTask({ 
         ...subject, 
         intent: targetStatus, 
-        parentTaskId: subtaskId ? taskId : null,
-        _dateKey: getAppDayKey(dayStartTime),
+        _dateKey: appDay,
         _backdatedCompletedAt: new Date().getHours() < dayStartTime ? new Date().toISOString() : null
       });
+      
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, statusHistory: { ...(t.statusHistory || {}), [appDay]: targetStatus } } : t));
     } else if (targetStatus === 'missed') {
-      const isSub = !!subtaskId;
       Alert.alert(
-        isSub ? "Missed Subtask" : "Missed Task",
-        isSub 
-          ? `Mark "${subject.title}" as missed?`
-          : `Confirming this will mark "${task.title}" as missed and start a Missed Streak. Are you sure?`,
+        "Missed Task",
+        `Confirming this will mark "${task.title}" as missed and start a Missed Streak. Are you sure?`,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Confirm Missed", style: "destructive", onPress: () => {
-              const appDay = getAppDayKey(dayStartTime);
-              if (isSub) {
-                setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, 'missed') } : t));
-                logTaskEvent(subject, 'missed');
-              } else {
-                incrementMissedStreak();
-                logTaskEvent(task, 'missed');
-                const updatedHistory = { ...(task.statusHistory || {}), [appDay]: 'missed' };
-                const nextDue = calcNextDueDate(task, dayStartTime);
-                setTasks(prev => prev.map(t => t.id === taskId ? {
-                  ...t,
-                  status: 'missed',
-                  streak: calculateTaskStreak(updatedHistory, dayStartTime),
-                  statusHistory: updatedHistory,
-                  ...(nextDue ? { dueDate: nextDue } : {}),
-                } : t));
-              }
+              incrementMissedStreak();
+              logTaskEvent(task, 'missed');
+              const updatedHistory = { ...(task.statusHistory || {}), [appDay]: 'missed' };
+              const nextDue = calcNextDueDate(task, dayStartTime);
+              setTasks(prev => prev.map(t => t.id === taskId ? {
+                ...t,
+                status: 'missed',
+                streak: calculateTaskStreak(updatedHistory, dayStartTime),
+                statusHistory: updatedHistory,
+                ...(nextDue ? { dueDate: nextDue } : {}),
+              } : t));
           }}
         ]
       );
     } else {
-      const appDay = getAppDayKey(dayStartTime);
-      
-      // Check for subtask banking
-      if (subtaskId) {
-        // If it's Done/DidMyBest, we can bank it if the user is in "multi-select" or just default it to banking for subtasks
-        if (targetStatus === 'done' || targetStatus === 'did_my_best') {
-           addBankedReward({
-             taskId: taskId,
-             subtaskId: subtaskId,
-             title: subject.title,
-             intent: targetStatus,
-             points: Math.max(1, Math.floor((subject.points || 10) * 0.5)), // Subtasks give partialXP/points
-             xp: Math.max(1, Math.floor((subject.xp || 20) * 0.5)),
-           });
-           setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, targetStatus) } : t));
-           return;
-        }
-      }
-
+      const existing = tasks.find(t => t.id === taskId);
       if ((task.status === 'done' || task.status === 'did_my_best') && task.gainedReward) {
         removeReward(task.gainedReward.points, task.gainedReward.xp);
-        const updatedHistory = { ...(task.statusHistory || {}), [appDay]: targetStatus };
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, gainedReward: null, completedAt: null, streak: calculateTaskStreak(updatedHistory, dayStartTime), statusHistory: updatedHistory } : t));
-        logTaskEvent(task, targetStatus);
-      } else {
-        const existing = tasks.find(t => t.id === taskId);
-        if (existing && existing.status === 'first_step' && (targetStatus === 'done' || targetStatus === 'did_my_best')) {
-          addFreeRoll(1);
-          Alert.alert("Momentum Reward!", "You completed your 1st Step! Here's a free Dice Roll.");
-        }
-
-        if (subtaskId) {
-          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, targetStatus) } : t));
-          logTaskEvent(subject, targetStatus);
-        } else {
-          const updatedHistory = { ...(existing.statusHistory || {}), [appDay]: targetStatus };
-          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, streak: calculateTaskStreak(updatedHistory, dayStartTime), statusHistory: updatedHistory } : t));
-          logTaskEvent(existing, targetStatus);
-        }
       }
+      const updatedHistory = { ...(existing.statusHistory || {}), [appDay]: targetStatus };
+      setTasks(prev => prev.map(t => t.id === taskId ? { 
+        ...t, 
+        status: targetStatus, 
+        gainedReward: null, 
+        completedAt: null, 
+        streak: calculateTaskStreak(updatedHistory, dayStartTime), 
+        statusHistory: updatedHistory 
+      } : t));
+      logTaskEvent(existing, targetStatus);
     }
   }
 
@@ -3611,28 +3616,24 @@ export default function TasksScreen() {
         </View>
       )}
 
-      {/* Banked Rewards Collector */}
+      {/* Banked Rewards Floating Chip */}
       {economy.bankedRewards?.length > 0 && (
         <TouchableOpacity 
-          style={styles.rewardsCollector}
+          style={styles.floatingBankedChip}
           onPress={() => {
             const rewards = claimBankedRewards();
             if (rewards.length > 0) {
-              // Trigger the first reward roll
-              setCompletingTask({
-                ...rewards[0],
-                subtasks: [], // Don't show subtasks in roll
-                _isBankedCollection: true,
-                _remainingRewards: rewards.slice(1)
-              });
+              setBulkRollCount(rewards.length);
             }
           }}
         >
-          <View style={styles.collectorLeft}>
-            <Ionicons name="gift" size={20} color="#fff" />
-            <Text style={styles.collectorText}>Collect {economy.bankedRewards.length} Rewards</Text>
+          <View style={styles.bankedChipCount}>
+            <Text style={styles.bankedChipCountText}>
+              {economy.bankedRewards.length}
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={18} color="#fff" />
+          <Text style={{ fontSize: 14 }}>🎲</Text>
+          <Text style={styles.bankedChipText}>BANKED</Text>
         </TouchableOpacity>
       )}
     </SafeAreaView>
@@ -3698,22 +3699,39 @@ const styles = StyleSheet.create({
   timerClose: {
     padding: 4,
   },
-  rewardsCollector: {
+  floatingBankedChip: {
     position: 'absolute',
     bottom: 30,
     alignSelf: 'center',
     backgroundColor: '#6366f1',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 25,
-    minWidth: 200,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
     shadowColor: '#6366f1',
-    shadowOpacity: 0.4,
+    shadowOpacity: 0.3,
     shadowRadius: 10,
     elevation: 8,
+    zIndex: 100,
+  },
+  bankedChipCount: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  bankedChipCountText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  bankedChipText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   collectorLeft: {
     flexDirection: 'row',
@@ -3867,6 +3885,9 @@ const styles = StyleSheet.create({
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 15,
+    maxWidth: 600,
+    alignSelf: 'center',
+    width: '100%',
   },
   fydHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
   fydStepText: { fontSize: 12, fontWeight: '700', color: '#8b5cf6', textTransform: 'uppercase' },

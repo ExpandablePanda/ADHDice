@@ -121,7 +121,9 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
               <TouchableOpacity style={styles.xBtn} onPress={onClose}>
                 <Ionicons name="close" size={24} color="#9ca3af" />
               </TouchableOpacity>
-              <Text style={styles.title}>Task Complete!</Text>
+              <Text style={styles.title}>
+                {task._isBulk ? `Bulk Collection (${task.rewardsCount})` : 'Task Complete!'}
+              </Text>
               <Text style={styles.sub}>How did it go? Choose the option that best fits.</Text>
               {OPTIONS.map((opt, i) => (
                 <TouchableOpacity key={i} style={[styles.optBtn, { borderColor: opt.color }]} onPress={() => handleRoll(opt)}>

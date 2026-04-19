@@ -30,6 +30,7 @@ function fmtTimer(seconds) {
 }
 
 function fmtDuration(minutes) {
+  if (!minutes || isNaN(minutes)) return '0m';
   if (minutes < 60) return `${minutes}m`;
   const h = Math.floor(minutes / 60);
   const m = minutes % 60;
@@ -1120,7 +1121,8 @@ export default function FocusScreen() {
   const [showCatModal, setShowCatModal] = useState(false);
   const [showImport, setShowImport]     = useState(false);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
-  const [showPicker, setShowPicker]     = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showReorder, setShowReorder]   = useState(false);
   const [adjustingKey, setAdjustingKey] = useState(null);
@@ -1142,7 +1144,7 @@ export default function FocusScreen() {
   }, [timerState]);
 
   const handleScroll = (event) => {
-    const y = event.nativeEvent.contentOffset.y;
+    const y = event.nativeEvent.contentOffset.x;
     setShowScrollTop(y > 300);
   };
 
@@ -1264,10 +1266,6 @@ export default function FocusScreen() {
     // Group minutes by nature
     const sorted = { productive: 0, paid: 0, entertainment: 0, sleep: 0 };
     
-    // For today/day stats, we can track sleep overflow
-    // but getTimeSummary is often called for ranges too.
-    // Let's implement a "date-aware" summary for precise sleep logic.
-    
     // 1. Group by day to apply sleep cap
     const dayMap = {};
     periodEntries.forEach(e => {
@@ -1275,7 +1273,7 @@ export default function FocusScreen() {
       if (!dayMap[dKey]) dayMap[dKey] = { productive: 0, paid: 0, entertainment: 0, sleep: 0 };
       const cat = categories.find(c => c.key === e.category) || { label: 'Deleted', color: '#94a3b8' };
       const nature = cat.nature || (cat.isProductive ? 'productive' : 'entertainment');
-      dayMap[dKey][nature] += e.minutes;
+      dayMap[dKey][nature] += Number(e.minutes || 0);
     });
 
     let totalEffProductive = 0;
@@ -1285,13 +1283,13 @@ export default function FocusScreen() {
       const cappedSleep = Math.min(day.sleep, 480); // 8h
       const overflowSleep = Math.max(0, day.sleep - 480);
       
-      totalEffProductive += day.productive + day.paid + cappedSleep;
-      totalEffWaste += day.entertainment + overflowSleep;
+      totalEffProductive += (day.productive || 0) + (day.paid || 0) + (cappedSleep || 0);
+      totalEffWaste += (day.entertainment || 0) + (overflowSleep || 0);
       
-      sorted.productive += day.productive;
-      sorted.paid += day.paid;
-      sorted.entertainment += day.entertainment;
-      sorted.sleep += day.sleep;
+      sorted.productive += (day.productive || 0);
+      sorted.paid += (day.paid || 0);
+      sorted.entertainment += (day.entertainment || 0);
+      sorted.sleep += (day.sleep || 0);
     });
 
     const total = totalEffProductive + totalEffWaste;
@@ -1382,7 +1380,7 @@ export default function FocusScreen() {
               );
             })}
 
-            <TouchableOpacity style={styles.addClockBtn} onPress={() => setShowPicker(true)}>
+            <TouchableOpacity style={styles.addClockBtn} onPress={() => setShowCategoryPicker(true)}>
               <View style={styles.addClockCircle}>
                 <Ionicons name="add" size={32} color={colors.primary} />
               </View>
@@ -1435,7 +1433,7 @@ export default function FocusScreen() {
             <Text style={styles.sectionTitle}>Daily History</Text>
             <TouchableOpacity 
               style={styles.jumpBtn}
-              onPress={() => setShowPicker(true)}
+              onPress={() => setShowDatePicker(true)}
             >
               <Ionicons name="calendar-outline" size={16} color={colors.primary} />
               <Text style={styles.jumpBtnText}>Jump to Date</Text>
@@ -1444,28 +1442,22 @@ export default function FocusScreen() {
           
           <ScrollView
             horizontal
-            pagingEnabled
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.galleryList}
-            snapToInterval={SCREEN_WIDTH - 40}
+            snapToInterval={SCREEN_WIDTH - 20}
+            snapToAlignment="start"
             decelerationRate="fast"
-            inverted // Show most recent first (right to left) or just start at end?
-            // Actually, natural order (left to right) is better but start at the end (Today).
             ref={ref => {
-              if (ref && !galleryScrolledRef.current) {
-                // Initialize scroll to end (Today)
-                setTimeout(() => ref.scrollToEnd({ animated: false }), 100);
-                galleryScrolledRef.current = true;
-              }
+              scrollRef.current = ref;
             }}
           >
             {Array.from({ length: 30 }, (_, i) => {
               const date = new Date();
-              date.setDate(date.getDate() - (29 - i));
+              date.setDate(date.getDate() - i); // Now 0 is today, 1 is yesterday, etc.
               date.setHours(0,0,0,0);
               const dayEntries = entries.filter(e => isSameDay(e.date, date));
               const stats = getTimeSummary(dayEntries);
-              const isToday = isSameDay(date, new Date());
+              const isToday = i === 0;
 
               return (
                 <View key={i} style={styles.historyCard}>
@@ -1478,6 +1470,10 @@ export default function FocusScreen() {
                       <View style={styles.todaySummaryItem}>
                         <View style={[styles.summaryDot, { backgroundColor: '#10b981' }]} />
                         <Text style={styles.summaryText}>Focus: {fmtDuration(stats.productive)}</Text>
+                      </View>
+                      <View style={styles.todaySummaryItem}>
+                        <View style={[styles.summaryDot, { backgroundColor: '#ef4444' }]} />
+                        <Text style={styles.summaryText}>Ent.: {fmtDuration(stats.entertainment)}</Text>
                       </View>
                       <View style={styles.todaySummaryItem}>
                         <View style={[styles.summaryDot, { backgroundColor: '#7c3aed' }]} />
@@ -1569,7 +1565,7 @@ export default function FocusScreen() {
             </View>
             <View style={styles.productivityBadge}>
               <Text style={styles.productivityBadgeText}>
-                {statsPeriod === 'week' ? weekStats.pct : todayStats.pct}%
+                {statsPeriod === 'week' ? weekStats.score : todayStats.score}%
               </Text>
             </View>
           </View>
@@ -1579,7 +1575,7 @@ export default function FocusScreen() {
               style={[
                 styles.productivityBarFill, 
                 { 
-                  width: `${statsPeriod === 'week' ? weekStats.pct : todayStats.pct}%`, 
+                  width: `${statsPeriod === 'week' ? weekStats.score : todayStats.score}%`, 
                   backgroundColor: colors.primary 
                 }
               ]} 
@@ -1591,14 +1587,21 @@ export default function FocusScreen() {
               <Text style={styles.productivityStatVal}>
                 {fmtDuration(statsPeriod === 'week' ? weekStats.productive : todayStats.productive)}
               </Text>
-              <Text style={styles.productivityStatLabel}>Productive</Text>
+              <Text style={styles.productivityStatLabel}>Focus</Text>
             </View>
             <View style={styles.productivityStatDivider} />
             <View style={styles.productivityStat}>
               <Text style={styles.productivityStatVal}>
-                {fmtDuration(statsPeriod === 'week' ? weekStats.nonProductive : todayStats.nonProductive)}
+                {fmtDuration(statsPeriod === 'week' ? weekStats.entertainment : todayStats.entertainment)}
               </Text>
               <Text style={styles.productivityStatLabel}>Entertainment</Text>
+            </View>
+            <View style={styles.productivityStatDivider} />
+            <View style={styles.productivityStat}>
+              <Text style={styles.productivityStatVal}>
+                {fmtDuration(statsPeriod === 'week' ? weekStats.sleep : todayStats.sleep)}
+              </Text>
+              <Text style={styles.productivityStatLabel}>Rest</Text>
             </View>
           </View>
         </View>
@@ -1670,13 +1673,18 @@ export default function FocusScreen() {
                   </View>
                   <Text style={[styles.entryDuration, { color: cat.color }]}>{fmtDuration(entry.minutes)}</Text>
                   <TouchableOpacity 
-                onPress={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id); }} 
-                style={{ padding: 6, marginLeft: 4 }}
-                hitSlop={8}
-              >    
+                    onPress={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id); }} 
+                    style={{ padding: 6, marginLeft: 4 }}
+                    hitSlop={8}
+                  >    
                     <Ionicons name="trash-outline" size={16} color="#d1d5db" />
                   </TouchableOpacity>
-                  <Ionicons name="chevron-forward" size={14} color="#d1d5db" />
+                  <TouchableOpacity 
+                    onPress={(e) => { e.stopPropagation(); setEditEntry(entry); }}
+                    style={{ padding: 6 }}
+                  >
+                    <Ionicons name="chevron-forward" size={14} color="#d1d5db" />
+                  </TouchableOpacity>
                 </TouchableOpacity>
               );
             })
@@ -1685,11 +1693,25 @@ export default function FocusScreen() {
       </ScrollView>
 
       <EntryModal
-        visible={showAddModal}
-        entry={null}
-        onSave={saveEntry}
-        onDelete={deleteEntry}
-        onClose={() => setShowAddModal(false)}
+        visible={showAddModal || !!editEntry}
+        entry={editEntry}
+        onSave={(data) => {
+          if (editEntry) {
+            updateEntry({ ...editEntry, ...data });
+            setEditEntry(null);
+          } else {
+            saveEntry(data);
+            setShowAddModal(false);
+          }
+        }}
+        onDelete={(id) => {
+          deleteEntry(id);
+          setEditEntry(null);
+        }}
+        onClose={() => {
+          setShowAddModal(false);
+          setEditEntry(null);
+        }}
         categories={categories}
       />
 
@@ -1802,12 +1824,12 @@ export default function FocusScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Picker modal */}
-      <Modal visible={showPicker} animationType="fade" transparent>
+      {/* Category Picker modal */}
+      <Modal visible={showCategoryPicker} animationType="fade" transparent>
         <TouchableOpacity 
           style={styles.modalOverlay} 
           activeOpacity={1} 
-          onPress={() => setShowPicker(false)}
+          onPress={() => setShowCategoryPicker(false)}
         >
           <View style={styles.pickerContent}>
             <Text style={styles.pickerTitle}>Select Category</Text>
@@ -1818,7 +1840,7 @@ export default function FocusScreen() {
                   style={styles.pickerItem}
                   onPress={() => {
                     addVisibleTimer(cat.key);
-                    setShowPicker(false);
+                    setShowCategoryPicker(false);
                   }}
                 >
                   <View style={[styles.pickerIcon, { backgroundColor: cat.color + '15' }]}>
@@ -1828,9 +1850,42 @@ export default function FocusScreen() {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            <TouchableOpacity style={styles.pickerClose} onPress={() => setShowPicker(false)}>
+            <TouchableOpacity style={styles.pickerClose} onPress={() => setShowCategoryPicker(false)}>
               <Text style={styles.pickerCloseText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Date Picker Modal */}
+      <Modal visible={showDatePicker} animationType="fade" transparent>
+        <TouchableOpacity 
+          style={styles.modalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowDatePicker(false)}
+        >
+          <View style={[styles.pickerContent, { maxHeight: '60%' }]}>
+            <Text style={styles.pickerTitle}>Jump to Date</Text>
+            <ScrollView style={{ paddingHorizontal: 20 }}>
+              {Array.from({ length: 30 }, (_, i) => {
+                const d = new Date();
+                d.setDate(d.getDate() - (29 - i));
+                return d;
+              }).reverse().map((date, idx) => (
+                <TouchableOpacity 
+                  key={idx} 
+                  style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}
+                  onPress={() => {
+                    if (scrollRef.current) {
+                      scrollRef.current.scrollTo({ x: idx * (SCREEN_WIDTH - 20), animated: true });
+                    }
+                    setShowDatePicker(false);
+                  }}
+                >
+                  <Text style={{ fontSize: 16, color: colors.textPrimary }}>{fmtDate(date)}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         </TouchableOpacity>
       </Modal>
