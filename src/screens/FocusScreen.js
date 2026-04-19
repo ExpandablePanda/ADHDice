@@ -205,7 +205,7 @@ function CategoryBreakdown({ entries, period, categories, goals = {}, specificDa
         const catGoals = goals[cat.key];
         let displayGoal = 0;
         let pct = 0;
-        
+
         if (period === 'today' || period === 'week' || period === 'day') {
           if (period === 'today' || period === 'day') {
             displayGoal = catGoals?.daily || (catGoals?.weekly > 0 ? Math.round(catGoals.weekly / 7) : 0);
@@ -217,10 +217,13 @@ function CategoryBreakdown({ entries, period, categories, goals = {}, specificDa
           pct = totalMins > 0 ? (cat.minutes / totalMins) * 100 : 0;
         }
 
+        const isUnproductive = cat.subtype === 'unproductive';
+        const displayColor = isUnproductive ? '#ef4444' : cat.color;
+
         return (
           <View key={cat.key} style={styles.breakdownRow}>
-            <View style={[styles.breakdownIcon, { backgroundColor: cat.color + '18' }]}>
-              <Ionicons name={cat.icon} size={16} color={cat.color} />
+            <View style={[styles.breakdownIcon, { backgroundColor: displayColor + '18' }]}>
+              <Ionicons name={cat.icon} size={16} color={displayColor} />
             </View>
             <View style={styles.breakdownInfo}>
               <View style={styles.breakdownTop}>
@@ -231,7 +234,7 @@ function CategoryBreakdown({ entries, period, categories, goals = {}, specificDa
                 </Text>
               </View>
               <View style={styles.breakdownBarBg}>
-                <View style={[styles.breakdownBarFill, { width: `${pct}%`, backgroundColor: cat.color }]} />
+                <View style={[styles.breakdownBarFill, { width: `${pct}%`, backgroundColor: displayColor }]} />
               </View>
             </View>
             <Text style={styles.breakdownPct}>{Math.round(pct)}%</Text>
@@ -248,25 +251,25 @@ function CategoryBreakdown({ entries, period, categories, goals = {}, specificDa
 
 function FocusCalendarModal({ visible, currentDate, onSelect, onClose }) {
   const [viewDate, setViewDate] = useState(new Date(currentDate));
-  
+
   const headerDate = viewDate.toLocaleString('default', { month: 'long', year: 'numeric' });
-  
+
   const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate();
   const firstDayOfMonth = (y, m) => new Date(y, m, 1).getDay(); // 0 (Sun) to 6 (Sat)
-  
+
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
-  
+
   const numDays = daysInMonth(year, month);
   const startDay = firstDayOfMonth(year, month);
-  
+
   // Adjust startDay for Monday start (0=Mon...6=Sun)
   const mondayStartIdx = startDay === 0 ? 6 : startDay - 1;
-  
+
   const calendarDays = [];
   for (let i = 0; i < mondayStartIdx; i++) calendarDays.push(null);
   for (let d = 1; d <= numDays; d++) calendarDays.push(d);
-  
+
   const changeMonth = (delta) => {
     setViewDate(new Date(year, month + delta, 1));
   };
@@ -295,26 +298,26 @@ function FocusCalendarModal({ visible, currentDate, onSelect, onClose }) {
               <Ionicons name="chevron-forward" size={24} color={colors.primary} />
             </TouchableOpacity>
           </View>
-          
+
           <View style={{ flexDirection: 'row', marginBottom: 10 }}>
             {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
               <Text key={i} style={{ flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '700', color: '#9ca3af' }}>{d}</Text>
             ))}
           </View>
-          
+
           <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
             {calendarDays.map((day, i) => (
-              <TouchableOpacity 
-                key={i} 
+              <TouchableOpacity
+                key={i}
                 disabled={!day}
                 onPress={() => {
                   onSelect(new Date(year, month, day));
                   onClose();
                 }}
-                style={{ 
-                  width: '14.28%', 
-                  aspectRatio: 1, 
-                  alignItems: 'center', 
+                style={{
+                  width: '14.28%',
+                  aspectRatio: 1,
+                  alignItems: 'center',
                   justifyContent: 'center',
                   borderRadius: 12,
                   backgroundColor: isSelected(day) ? colors.primary : 'transparent',
@@ -323,8 +326,8 @@ function FocusCalendarModal({ visible, currentDate, onSelect, onClose }) {
                 }}
               >
                 {day && (
-                  <Text style={{ 
-                    fontSize: 14, 
+                  <Text style={{
+                    fontSize: 14,
                     fontWeight: isSelected(day) || isToday(day) ? '700' : '500',
                     color: isSelected(day) ? '#fff' : (day ? '#111827' : 'transparent')
                   }}>
@@ -334,7 +337,7 @@ function FocusCalendarModal({ visible, currentDate, onSelect, onClose }) {
               </TouchableOpacity>
             ))}
           </View>
-          
+
           <TouchableOpacity onPress={onClose} style={{ marginTop: 20, padding: 12, alignItems: 'center' }}>
             <Text style={{ color: colors.primary, fontWeight: '700' }}>Close</Text>
           </TouchableOpacity>
@@ -351,10 +354,10 @@ function FocusCalendarModal({ visible, currentDate, onSelect, onClose }) {
 function EntryModal({ visible, entry, onSave, onDelete, onClose, categories }) {
   const isEdit = entry && entry.id;
   const [category, setCategory] = useState(entry?.category || categories[0]?.key || 'work');
-  const [hours, setHours]       = useState('');
-  const [mins, setMins]         = useState('');
-  const [date, setDate]         = useState(new Date());
-  const [note, setNote]         = useState('');
+  const [hours, setHours] = useState('');
+  const [mins, setMins] = useState('');
+  const [date, setDate] = useState(new Date());
+  const [note, setNote] = useState('');
   const [showCalendar, setShowCalendar] = useState(false);
 
   useEffect(() => {
@@ -479,15 +482,15 @@ function EntryModal({ visible, entry, onSave, onDelete, onClose, categories }) {
             ))}
           </View>
 
-          <TouchableOpacity 
-            style={[styles.fieldInput, { justifyContent: 'center' }]} 
+          <TouchableOpacity
+            style={[styles.fieldInput, { justifyContent: 'center' }]}
             onPress={() => setShowCalendar(true)}
           >
             <Text style={{ color: '#111827' }}>{date.toLocaleDateString()}</Text>
             <Ionicons name="calendar-outline" size={16} color={colors.primary} style={{ position: 'absolute', right: 12 }} />
           </TouchableOpacity>
 
-          <FocusCalendarModal 
+          <FocusCalendarModal
             visible={showCalendar}
             currentDate={date}
             onSelect={setDate}
@@ -517,7 +520,7 @@ function EntryModal({ visible, entry, onSave, onDelete, onClose, categories }) {
 
 // ── Palette for categories ───────────────────────────────────────────────────
 const CATEGORY_COLORS = [
-  '#4f46e5', '#0891b2', '#7c3aed', '#059669', '#d97706', 
+  '#4f46e5', '#0891b2', '#7c3aed', '#059669', '#d97706',
   '#ec4899', '#ef4444', '#10b981', '#f59e0b', '#3b82f6', '#6b7280'
 ];
 
@@ -527,23 +530,23 @@ const CATEGORY_COLORS = [
 
 // Curated list of Ionicons for the icon picker
 const ICON_PICKER_ICONS = [
-  'briefcase-outline','book-outline','color-palette-outline','fitness-outline','home-outline',
-  'person-outline','ellipsis-horizontal-outline','heart-outline','star-outline','flame-outline',
-  'musical-notes-outline','headset-outline','code-slash-outline','terminal-outline','laptop-outline',
-  'phone-portrait-outline','camera-outline','image-outline','videocam-outline','mic-outline',
-  'chatbubble-outline','mail-outline','calendar-outline','alarm-outline','time-outline',
-  'bicycle-outline','walk-outline','barbell-outline','basketball-outline','football-outline',
-  'leaf-outline','flower-outline','earth-outline','water-outline','sunny-outline',
-  'moon-outline','cloudy-outline','thunderstorm-outline','snow-outline','umbrella-outline',
-  'car-outline','airplane-outline','train-outline','boat-outline','rocket-outline',
-  'restaurant-outline','cafe-outline','pizza-outline','beer-outline','wine-outline',
-  'medkit-outline','bandage-outline','glasses-outline','shirt-outline','bag-outline',
-  'cart-outline','gift-outline','trophy-outline','ribbon-outline','medal-outline',
-  'bulb-outline','flash-outline','battery-charging-outline','wifi-outline','bluetooth-outline',
-  'brush-outline','pencil-outline','create-outline','cut-outline','build-outline',
-  'construct-outline','hammer-outline','flask-outline','beaker-outline','telescope-outline',
-  'dice-outline','game-controller-outline','extension-puzzle-outline',
-  'paw-outline','bug-outline','fish-outline','logo-github','logo-youtube',
+  'briefcase-outline', 'book-outline', 'color-palette-outline', 'fitness-outline', 'home-outline',
+  'person-outline', 'ellipsis-horizontal-outline', 'heart-outline', 'star-outline', 'flame-outline',
+  'musical-notes-outline', 'headset-outline', 'code-slash-outline', 'terminal-outline', 'laptop-outline',
+  'phone-portrait-outline', 'camera-outline', 'image-outline', 'videocam-outline', 'mic-outline',
+  'chatbubble-outline', 'mail-outline', 'calendar-outline', 'alarm-outline', 'time-outline',
+  'bicycle-outline', 'walk-outline', 'barbell-outline', 'basketball-outline', 'football-outline',
+  'leaf-outline', 'flower-outline', 'earth-outline', 'water-outline', 'sunny-outline',
+  'moon-outline', 'cloudy-outline', 'thunderstorm-outline', 'snow-outline', 'umbrella-outline',
+  'car-outline', 'airplane-outline', 'train-outline', 'boat-outline', 'rocket-outline',
+  'restaurant-outline', 'cafe-outline', 'pizza-outline', 'beer-outline', 'wine-outline',
+  'medkit-outline', 'bandage-outline', 'glasses-outline', 'shirt-outline', 'bag-outline',
+  'cart-outline', 'gift-outline', 'trophy-outline', 'ribbon-outline', 'medal-outline',
+  'bulb-outline', 'flash-outline', 'battery-charging-outline', 'wifi-outline', 'bluetooth-outline',
+  'brush-outline', 'pencil-outline', 'create-outline', 'cut-outline', 'build-outline',
+  'construct-outline', 'hammer-outline', 'flask-outline', 'beaker-outline', 'telescope-outline',
+  'dice-outline', 'game-controller-outline', 'extension-puzzle-outline',
+  'paw-outline', 'bug-outline', 'fish-outline', 'logo-github', 'logo-youtube',
 ];
 
 function IconPickerModal({ visible, current, onSelect, onClose }) {
@@ -648,7 +651,7 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
                       <Ionicons name="chevron-down" size={16} color="#6b7280" />
                     </TouchableOpacity>
                   </View>
-                  
+
                   <TouchableOpacity
                     onPress={() => setPickerIdx(idx)}
                     style={{ width: 44, height: 44, borderRadius: 10, backgroundColor: cat.color || '#374151', alignItems: 'center', justifyContent: 'center' }}
@@ -665,7 +668,7 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
                     onChangeText={(v) => updateCat(idx, 'label', v)}
                     placeholder="Category Name"
                   />
-                  
+
                   <TouchableOpacity onPress={() => removeCat(idx)} style={{ padding: 8 }}>
                     <Ionicons name="trash-outline" size={20} color="#ef4444" />
                   </TouchableOpacity>
@@ -694,19 +697,44 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
                       </TouchableOpacity>
                     ))}
                   </View>
-                  
+
+                  {cat.nature === 'entertainment' && (
+                    <>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 }}>Subtype</Text>
+                      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 12 }}>
+                        {[
+                          { key: null, label: 'Standard', icon: 'star', color: '#6b7280' },
+                          { key: 'unproductive', label: 'Unproductive', icon: 'skull', color: '#ef4444' },
+                        ].map(s => (
+                          <TouchableOpacity
+                            key={String(s.key)}
+                            onPress={() => updateCat(idx, 'subtype', s.key)}
+                            style={{
+                              paddingHorizontal: 8, paddingVertical: 5, borderRadius: 8,
+                              backgroundColor: (cat.subtype === s.key || (cat.subtype === undefined && s.key === null)) ? s.color : '#f3f4f6',
+                              flexDirection: 'row', alignItems: 'center', gap: 4
+                            }}
+                          >
+                            <Ionicons name={s.icon} size={10} color={(cat.subtype === s.key || (cat.subtype === undefined && s.key === null)) ? '#fff' : s.color} />
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: (cat.subtype === s.key || (cat.subtype === undefined && s.key === null)) ? '#fff' : '#6b7280' }}>{s.label}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </>
+                  )}
+
                   <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', marginBottom: 8, letterSpacing: 0.5 }}>Category Color</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
                     {CATEGORY_COLORS.map(c => (
-                      <TouchableOpacity 
-                        key={c} 
+                      <TouchableOpacity
+                        key={c}
                         onPress={() => updateCat(idx, 'color', c)}
-                        style={{ 
-                          width: 24, 
-                          height: 24, 
-                          borderRadius: 12, 
-                          backgroundColor: c, 
-                          borderWidth: cat.color === c ? 2 : 0, 
+                        style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 12,
+                          backgroundColor: c,
+                          borderWidth: cat.color === c ? 2 : 0,
                           borderColor: '#fff',
                           shadowColor: '#000',
                           shadowOpacity: cat.color === c ? 0.3 : 0,
@@ -771,7 +799,7 @@ function GoalSettingModal({ visible, categories, goals, onSave, onClose }) {
       const h = Math.floor(currentTotal / 60);
       const m = currentTotal % 60;
       const newTotal = unit === 'h' ? (num * 60 + m) : (h * 60 + num);
-      
+
       let next = {
         ...(prev[catKey] || { daily: 0, weekly: 0 }),
         [period]: newTotal
@@ -801,7 +829,7 @@ function GoalSettingModal({ visible, categories, goals, onSave, onClose }) {
 
         <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
           <Text style={{ fontSize: 14, color: colors.textMuted, marginBottom: 20 }}> Set daily and weekly time targets for each category. </Text>
-          
+
           {categories.map(cat => (
             <View key={cat.key} style={{ marginBottom: 24, padding: 16, backgroundColor: '#f9fafb', borderRadius: 12 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 }}>
@@ -978,10 +1006,10 @@ function FocusImportModal({ visible, categories, onClose, onImport }) {
 }
 
 function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
-  const [step, setStep]     = useState('offer'); // offer | rolling | result
-  const [roll, setRoll]     = useState(null);
-  const spinVal              = useRef(new Animated.Value(0)).current;
-  const rollSoundRef         = useRef(null);
+  const [step, setStep] = useState('offer'); // offer | rolling | result
+  const [roll, setRoll] = useState(null);
+  const spinVal = useRef(new Animated.Value(0)).current;
+  const rollSoundRef = useRef(null);
 
   useEffect(() => {
     async function loadSound() {
@@ -1005,7 +1033,7 @@ function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
       if (rollSoundRef.current) {
         await rollSoundRef.current.replayAsync();
       }
-    } catch (e) {}
+    } catch (e) { }
   }
 
   useEffect(() => {
@@ -1096,12 +1124,113 @@ function FocusRewardModal({ visible, minutes, basePoints, onClose, onClaim }) {
   );
 }
 
+function UnproductivePenaltyModal({ visible, minutes, baseDeduction, onClose, onDeduct }) {
+  const [step, setStep] = useState('warning'); // warning | rolling | result
+  const [roll, setRoll] = useState(null);
+  const spinVal = useRef(new Animated.Value(0)).current;
+  const rollSoundRef = useRef(null);
+
+  useEffect(() => {
+    async function loadSound() {
+      try {
+        const { sound } = await Audio.Sound.createAsync(require('../../assets/dice-roll.wav'));
+        rollSoundRef.current = sound;
+      } catch (e) { }
+    }
+    loadSound();
+    return () => { if (rollSoundRef.current) rollSoundRef.current.unloadAsync(); };
+  }, []);
+
+  async function playRollSound() {
+    try { if (rollSoundRef.current) await rollSoundRef.current.replayAsync(); } catch (e) { }
+  }
+
+  useEffect(() => {
+    if (visible) { setStep('warning'); setRoll(null); }
+  }, [visible]);
+
+  function handleRoll() {
+    setStep('rolling');
+    playRollSound();
+    Animated.timing(spinVal, { toValue: 1, duration: 800, useNativeDriver: true }).start(() => {
+      const r = Math.floor(Math.random() * 6) + 1;
+      setRoll(r);
+      setStep('result');
+      playRollSound();
+      spinVal.setValue(0);
+    });
+  }
+
+  const saved = roll >= 5;
+  const totalDeduction = saved ? Math.floor(baseDeduction / 2) : baseDeduction;
+  const spinDeg = spinVal.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '720deg'] });
+
+  return (
+    <Modal visible={visible} transparent animationType="fade">
+      <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.65)', alignItems: 'center', justifyContent: 'center' }}>
+        <View style={{ backgroundColor: '#fff', borderRadius: 24, padding: 28, width: '85%', alignItems: 'center', gap: 12 }}>
+          {step === 'warning' && (
+            <>
+              <View style={{ width: 56, height: 56, borderRadius: 16, backgroundColor: '#fee2e2', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="alert-circle" size={28} color="#ef4444" />
+              </View>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#111827' }}>Points Deduction</Text>
+              <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+                {fmtDuration(minutes)} of unproductive time → <Text style={{ fontWeight: '700', color: '#ef4444' }}>-{baseDeduction} pts</Text>
+              </Text>
+              <Text style={{ fontSize: 13, color: '#9ca3af', textAlign: 'center', marginTop: -4 }}>
+                Roll a D6 — land a 5 or 6 and lose only half!
+              </Text>
+              <TouchableOpacity
+                style={{ backgroundColor: '#ef4444', paddingHorizontal: 32, paddingVertical: 14, borderRadius: 14, marginTop: 4 }}
+                onPress={handleRoll}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>Roll D6 to Save</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => onDeduct(baseDeduction)}>
+                <Text style={{ color: '#9ca3af', fontSize: 13, marginTop: 4 }}>Accept full penalty (-{baseDeduction} pts)</Text>
+              </TouchableOpacity>
+            </>
+          )}
+
+          {step === 'rolling' && (
+            <Animated.View style={{ transform: [{ rotate: spinDeg }], marginVertical: 30 }}>
+              <Ionicons name="dice" size={80} color="#ef4444" />
+            </Animated.View>
+          )}
+
+          {step === 'result' && (
+            <>
+              <Text style={{ fontSize: 48, fontWeight: '900', color: saved ? '#10b981' : '#ef4444', marginVertical: 10 }}>{roll}</Text>
+              <Text style={{ fontSize: 20, fontWeight: '800', color: '#111827' }}>
+                {saved ? 'Close Call!' : 'Ouch! Full Penalty.'}
+              </Text>
+              <Text style={{ fontSize: 14, color: '#6b7280', textAlign: 'center' }}>
+                {saved ? 'A roll of 5 or 6 saved half your points.' : 'Better luck next time.'}
+              </Text>
+              <View style={{ backgroundColor: '#f9fafb', padding: 16, borderRadius: 16, width: '100%', alignItems: 'center', marginTop: 10 }}>
+                <Text style={{ fontSize: 22, fontWeight: '900', color: '#111827' }}>-{totalDeduction} pts</Text>
+              </View>
+              <TouchableOpacity
+                style={{ backgroundColor: '#111827', width: '100%', paddingVertical: 14, borderRadius: 14, alignItems: 'center', marginTop: 10 }}
+                onPress={() => onDeduct(totalDeduction)}
+              >
+                <Text style={{ color: '#fff', fontWeight: '800' }}>Confirm</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // MAIN FOCUS SCREEN
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function FocusScreen() {
-  const { 
+  const {
     entries, addEntry, deleteEntry, updateEntry,
     categories, setCategories,
     goals, setGoals,
@@ -1109,26 +1238,27 @@ export default function FocusScreen() {
     activeTimerKeys,
     addVisibleTimer, removeVisibleTimer, reorderTimer,
     adjustTimer,
-    startTimer, stopTimer, resetTimer 
+    startTimer, stopTimer, resetTimer
   } = useFocus();
-  const { addReward } = useEconomy();
+  const { addReward, removeReward } = useEconomy();
   const galleryScrolledRef = useRef(false);
-  
+
   const [timerSeconds, setTimerSeconds] = useState(0); // For display only
   const [pendingLog, setPendingLog] = useState(null); // { category, seconds }
-  const [editEntry, setEditEntry]       = useState(null);
+  const [editEntry, setEditEntry] = useState(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCatModal, setShowCatModal] = useState(false);
-  const [showImport, setShowImport]     = useState(false);
+  const [showImport, setShowImport] = useState(false);
   const [showGoalsModal, setShowGoalsModal] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
-  const [showReorder, setShowReorder]   = useState(false);
+  const [showReorder, setShowReorder] = useState(false);
   const [adjustingKey, setAdjustingKey] = useState(null);
-  const [pendingNote, setPendingNote]   = useState('');
-  const [statsPeriod, setStatsPeriod]   = useState('week');
+  const [pendingNote, setPendingNote] = useState('');
+  const [statsPeriod, setStatsPeriod] = useState('week');
   const [pendingFocusReward, setPendingFocusReward] = useState(null); // { minutes, basePoints }
+  const [pendingPenalty, setPendingPenalty] = useState(null); // { minutes, baseDeduction }
   const intervalRef = useRef(null);
   const scrollRef = useRef(null);
   const [showScrollTop, setShowScrollTop] = useState(false);
@@ -1138,7 +1268,7 @@ export default function FocusScreen() {
   useEffect(() => {
     const hasActive = Object.values(timerState).some(s => s?.startTime);
     if (!hasActive) return;
-    
+
     const interval = setInterval(() => setTick(t => t + 1), 1000);
     return () => clearInterval(interval);
   }, [timerState]);
@@ -1175,7 +1305,9 @@ export default function FocusScreen() {
     if (!pendingLog) return;
     const { category, seconds } = pendingLog;
     const minutes = Math.floor(seconds / 60);
-    
+    const catObj = categories.find(c => c.key === category);
+    const isUnproductive = catObj?.subtype === 'unproductive';
+
     const newEntry = {
       id: String(Date.now()),
       category,
@@ -1188,25 +1320,39 @@ export default function FocusScreen() {
     setPendingLog(null);
     setPendingNote('');
 
-    const basePoints = Math.max(1, Math.floor(minutes * 0.5));
-    setPendingFocusReward({ minutes, basePoints });
+    if (isUnproductive) {
+      setPendingPenalty({ minutes, baseDeduction: minutes });
+    } else {
+      const basePoints = Math.max(1, minutes * 2);
+      setPendingFocusReward({ minutes, basePoints });
+    }
   }
 
   function saveEntry(entry) {
     const isExisting = entries.some(e => e.id === entry.id);
+    const catObj = categories.find(c => c.key === entry.category);
+    const isUnproductive = catObj?.subtype === 'unproductive';
+
     let basePoints = 0;
+    let baseDeduction = 0;
+
     if (isExisting) {
       updateEntry(entry);
     } else {
       addEntry(entry);
-      // Award focus points: 0.5 pts per minute, then offer D6 doubler (min 1 pt)
-      basePoints = Math.max(1, Math.floor(entry.minutes * 0.5));
+      if (isUnproductive) {
+        baseDeduction = entry.minutes;
+      } else {
+        basePoints = Math.max(1, entry.minutes * 2);
+      }
     }
-    
+
     setEditEntry(null);
     setShowAddModal(false);
-    
-    if (basePoints > 0) {
+
+    if (baseDeduction > 0) {
+      setTimeout(() => setPendingPenalty({ minutes: entry.minutes, baseDeduction }), 300);
+    } else if (basePoints > 0) {
       setTimeout(() => {
         setPendingFocusReward({ minutes: entry.minutes, basePoints });
       }, 300);
@@ -1264,15 +1410,16 @@ export default function FocusScreen() {
   // ── Productivity stats calculation ──────────────────────────────────────
   const getTimeSummary = (periodEntries) => {
     // Group minutes by nature
-    const sorted = { productive: 0, paid: 0, entertainment: 0, sleep: 0 };
-    
+    const sorted = { productive: 0, paid: 0, entertainment: 0, unproductive: 0, sleep: 0 };
+
     // 1. Group by day to apply sleep cap
     const dayMap = {};
     periodEntries.forEach(e => {
       const dKey = fmtDate(e.date);
-      if (!dayMap[dKey]) dayMap[dKey] = { productive: 0, paid: 0, entertainment: 0, sleep: 0 };
+      if (!dayMap[dKey]) dayMap[dKey] = { productive: 0, paid: 0, entertainment: 0, unproductive: 0, sleep: 0 };
       const cat = categories.find(c => c.key === e.category) || { label: 'Deleted', color: '#94a3b8' };
-      const nature = cat.nature || (cat.isProductive ? 'productive' : 'entertainment');
+      let nature = cat.nature || (cat.isProductive ? 'productive' : 'entertainment');
+      if (cat.subtype === 'unproductive') nature = 'unproductive';
       dayMap[dKey][nature] += Number(e.minutes || 0);
     });
 
@@ -1280,22 +1427,25 @@ export default function FocusScreen() {
     let totalEffWaste = 0;
 
     Object.values(dayMap).forEach(day => {
-      const cappedSleep = Math.min(day.sleep, 480); // 8h
-      const overflowSleep = Math.max(0, day.sleep - 480);
-      
+      const cappedSleep = Math.min(day.sleep || 0, 480); // 8h
+      const overflowSleep = Math.max(0, (day.sleep || 0) - 480);
+
       totalEffProductive += (day.productive || 0) + (day.paid || 0) + (cappedSleep || 0);
-      totalEffWaste += (day.entertainment || 0) + (overflowSleep || 0);
-      
+      totalEffWaste += (day.entertainment || 0) + (day.unproductive || 0) + (overflowSleep || 0);
+
       sorted.productive += (day.productive || 0);
       sorted.paid += (day.paid || 0);
       sorted.entertainment += (day.entertainment || 0);
+      sorted.unproductive += (day.unproductive || 0);
       sorted.sleep += (day.sleep || 0);
     });
 
     const total = totalEffProductive + totalEffWaste;
     return {
       total,
-      productive: sorted.productive + sorted.paid,
+      paid: sorted.paid,
+      productive: sorted.productive,
+      unproductive: sorted.unproductive,
       entertainment: sorted.entertainment,
       sleep: sorted.sleep,
       score: total > 0 ? Math.round((totalEffProductive / total) * 100) : 0
@@ -1303,13 +1453,13 @@ export default function FocusScreen() {
   };
 
   const todayStats = getTimeSummary(todayEntries);
-  const weekStats  = getTimeSummary(entries.filter(e => new Date(e.date) >= weekStart));
+  const weekStats = getTimeSummary(entries.filter(e => new Date(e.date) >= weekStart));
 
   return (
     <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
-      <ScrollView 
-        ref={scrollRef} 
-        contentContainerStyle={styles.scrollContent} 
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         onScroll={handleScroll}
         scrollEventThrottle={16}
@@ -1327,9 +1477,9 @@ export default function FocusScreen() {
 
         <View style={styles.dashboardSection}>
           <Text style={styles.sectionTitle}>Dashboard</Text>
-          <ScrollView 
-            horizontal 
-            showsHorizontalScrollIndicator={false} 
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.carouselContent}
             snapToInterval={140}
             decelerationRate="fast"
@@ -1343,7 +1493,7 @@ export default function FocusScreen() {
 
               return (
                 <View key={key} style={styles.clockWrapper}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={[styles.clockCircle, { borderColor: isRunning ? cat.color : colors.border }]}
                     onPress={() => handleTimerClick(cat)}
                     onLongPress={() => setAdjustingKey(key)}
@@ -1362,10 +1512,10 @@ export default function FocusScreen() {
                     <TouchableOpacity style={styles.smallControlBtn} onPress={() => resetTimer(key)}>
                       <Ionicons name="refresh" size={14} color="#9ca3af" />
                     </TouchableOpacity>
-                    
+
                     {elapsed >= 60 && !isRunning && (
-                      <TouchableOpacity 
-                        style={[styles.smallControlBtn, { backgroundColor: colors.primary + '15' }]} 
+                      <TouchableOpacity
+                        style={[styles.smallControlBtn, { backgroundColor: colors.primary + '15' }]}
                         onPress={() => setPendingLog({ category: key, seconds: elapsed })}
                       >
                         <Ionicons name="checkmark" size={14} color={colors.primary} />
@@ -1398,7 +1548,7 @@ export default function FocusScreen() {
                 <Text style={styles.confirmText}>
                   Log {fmtDuration(Math.floor(pendingLog.seconds / 60))} for {categories.find(c => c.key === pendingLog.category)?.label}?
                 </Text>
-                
+
                 <TextInput
                   style={styles.confirmInput}
                   placeholder="Add a note (optional)..."
@@ -1431,7 +1581,7 @@ export default function FocusScreen() {
         <View style={styles.galleryContainer}>
           <View style={styles.galleryHeader}>
             <Text style={styles.sectionTitle}>Daily History</Text>
-            <TouchableOpacity 
+            <TouchableOpacity
               style={styles.jumpBtn}
               onPress={() => setShowDatePicker(true)}
             >
@@ -1439,7 +1589,7 @@ export default function FocusScreen() {
               <Text style={styles.jumpBtnText}>Jump to Date</Text>
             </TouchableOpacity>
           </View>
-          
+
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1454,7 +1604,7 @@ export default function FocusScreen() {
             {Array.from({ length: 30 }, (_, i) => {
               const date = new Date();
               date.setDate(date.getDate() - i); // Now 0 is today, 1 is yesterday, etc.
-              date.setHours(0,0,0,0);
+              date.setHours(0, 0, 0, 0);
               const dayEntries = entries.filter(e => isSameDay(e.date, date));
               const stats = getTimeSummary(dayEntries);
               const isToday = i === 0;
@@ -1466,36 +1616,40 @@ export default function FocusScreen() {
                       <Text style={styles.todayLabel}>{isToday ? 'Today' : fmtDate(date)}</Text>
                       <Text style={styles.todayTotal}>{fmtDuration(stats.total)}</Text>
                     </View>
-                    <View style={styles.todaySummaryBreakdown}>
-                      <View style={styles.todaySummaryItem}>
-                        <View style={[styles.summaryDot, { backgroundColor: '#10b981' }]} />
-                        <Text style={styles.summaryText}>Focus: {fmtDuration(stats.productive)}</Text>
+                    <View style={styles.todaySummaryRow}>
+                      <View style={styles.scoreCircleSmall}>
+                        <Text style={styles.scoreValSmall}>{stats.score}%</Text>
+                        <Text style={styles.scoreLabelSmall}>Eff.</Text>
                       </View>
-                      <View style={styles.todaySummaryItem}>
-                        <View style={[styles.summaryDot, { backgroundColor: '#ef4444' }]} />
-                        <Text style={styles.summaryText}>Ent.: {fmtDuration(stats.entertainment)}</Text>
-                      </View>
-                      <View style={styles.todaySummaryItem}>
-                        <View style={[styles.summaryDot, { backgroundColor: '#7c3aed' }]} />
-                        <Text style={styles.summaryText}>Sleep: {fmtDuration(stats.sleep)}</Text>
+                      <View style={styles.todaySummaryBreakdown}>
+                        <View style={styles.todaySummaryItem}>
+                          <View style={[styles.summaryDot, { backgroundColor: '#3b82f6' }]} />
+                          <Text style={styles.summaryText}>Paid: {fmtDuration(stats.paid)}</Text>
+                        </View>
+                        <View style={styles.todaySummaryItem}>
+                          <View style={[styles.summaryDot, { backgroundColor: '#10b981' }]} />
+                          <Text style={styles.summaryText}>Productive: {fmtDuration(stats.productive)}</Text>
+                        </View>
+                        <View style={styles.todaySummaryItem}>
+                          <View style={[styles.summaryDot, { backgroundColor: '#ef4444' }]} />
+                          <Text style={styles.summaryText}>Unproductive: {fmtDuration(stats.unproductive)}</Text>
+                        </View>
+                        <View style={styles.todaySummaryItem}>
+                          <View style={[styles.summaryDot, { backgroundColor: '#7c3aed' }]} />
+                          <Text style={styles.summaryText}>Sleep: {fmtDuration(stats.sleep)}</Text>
+                        </View>
                       </View>
                     </View>
                   </View>
-                  
-                  <View style={styles.scoreRow}>
-                    <View style={styles.scoreCircle}>
-                      <Text style={styles.scoreVal}>{stats.score}%</Text>
-                      <Text style={styles.scoreLabel}>Efficiency</Text>
-                    </View>
-                    <View style={{ flex: 1, paddingLeft: 15 }}>
-                       <CategoryBreakdown 
-                        entries={entries} 
-                        period="day" 
-                        specificDate={date}
-                        categories={categories} 
-                        goals={goals} 
-                      />
-                    </View>
+
+                  <View style={{ marginTop: 12 }}>
+                    <CategoryBreakdown
+                      entries={entries}
+                      period="day"
+                      specificDate={date}
+                      categories={categories}
+                      goals={goals}
+                    />
                   </View>
                 </View>
               );
@@ -1525,13 +1679,13 @@ export default function FocusScreen() {
 
             {categories.filter(c => goals[c.key] && (goals[c.key].daily > 0 || goals[c.key].weekly > 0)).map(cat => {
               const catEntries = entries.filter(e => e.category === cat.key);
-              
+
               const dayItems = catEntries.filter(e => isSameDay(new Date(e.date), new Date()));
-              const dayMin   = dayItems.reduce((acc, curr) => acc + curr.minutes, 0);
-              
+              const dayMin = dayItems.reduce((acc, curr) => acc + curr.minutes, 0);
+
               const weekStart = getWeekStart(new Date());
               const weekItems = catEntries.filter(e => new Date(e.date) >= weekStart);
-              const weekMin   = weekItems.reduce((acc, curr) => acc + curr.minutes, 0);
+              const weekMin = weekItems.reduce((acc, curr) => acc + curr.minutes, 0);
 
               const catGoals = goals[cat.key];
 
@@ -1541,13 +1695,13 @@ export default function FocusScreen() {
                     <Ionicons name={cat.icon} size={14} color={cat.color} />
                     <Text style={styles.categoryGoalLabel}>{cat.label}</Text>
                   </View>
-                  
+
                   {catGoals.weekly > 0 && (
-                    <GoalProgressBar 
-                      label="This Week" 
-                      current={weekMin} 
-                      goal={catGoals.weekly} 
-                      color={cat.color} 
+                    <GoalProgressBar
+                      label="This Week"
+                      current={weekMin}
+                      goal={catGoals.weekly}
+                      color={cat.color}
                     />
                   )}
                 </View>
@@ -1569,19 +1723,19 @@ export default function FocusScreen() {
               </Text>
             </View>
           </View>
-          
+
           <View style={styles.productivityBarBg}>
-            <View 
+            <View
               style={[
-                styles.productivityBarFill, 
-                { 
-                  width: `${statsPeriod === 'week' ? weekStats.score : todayStats.score}%`, 
-                  backgroundColor: colors.primary 
+                styles.productivityBarFill,
+                {
+                  width: `${statsPeriod === 'week' ? weekStats.score : todayStats.score}%`,
+                  backgroundColor: colors.primary
                 }
-              ]} 
+              ]}
             />
           </View>
-          
+
           <View style={styles.productivityStatsRow}>
             <View style={styles.productivityStat}>
               <Text style={styles.productivityStatVal}>
@@ -1672,14 +1826,14 @@ export default function FocusScreen() {
                     </Text>
                   </View>
                   <Text style={[styles.entryDuration, { color: cat.color }]}>{fmtDuration(entry.minutes)}</Text>
-                  <TouchableOpacity 
-                    onPress={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id); }} 
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation(); handleDeleteEntry(entry.id); }}
                     style={{ padding: 6, marginLeft: 4 }}
                     hitSlop={8}
-                  >    
+                  >
                     <Ionicons name="trash-outline" size={16} color="#d1d5db" />
                   </TouchableOpacity>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     onPress={(e) => { e.stopPropagation(); setEditEntry(entry); }}
                     style={{ padding: 6 }}
                   >
@@ -1723,33 +1877,33 @@ export default function FocusScreen() {
               <Text style={styles.menuTitle}>Focus Settings</Text>
               <TouchableOpacity onPress={() => setShowSettings(false)}><Ionicons name="close" size={24} color={colors.textSecondary} /></TouchableOpacity>
             </View>
-            
-            <TouchableOpacity 
-              style={styles.menuItem} 
+
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => { setShowSettings(false); setShowImport(true); }}
             >
               <Ionicons name="download-outline" size={22} color={colors.primary} />
               <Text style={styles.menuItemText}>Import History</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.menuItem} 
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => { setShowSettings(false); setShowCatModal(true); }}
             >
               <Ionicons name="list-outline" size={22} color={colors.primary} />
               <Text style={styles.menuItemText}>Manage Categories</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.menuItem} 
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => { setShowSettings(false); setShowReorder(true); }}
             >
               <Ionicons name="swap-horizontal-outline" size={22} color={colors.primary} />
               <Text style={styles.menuItemText}>Reorder Dashboard</Text>
             </TouchableOpacity>
 
-            <TouchableOpacity 
-              style={styles.menuItem} 
+            <TouchableOpacity
+              style={styles.menuItem}
               onPress={() => { setShowSettings(false); setShowGoalsModal(true); }}
             >
               <Ionicons name="trophy-outline" size={22} color={colors.primary} />
@@ -1766,8 +1920,8 @@ export default function FocusScreen() {
             <Text style={styles.adjustTitle}>Adjust Minutes</Text>
             <View style={styles.adjustRow}>
               {[-15, -5, -1, 1, 5, 15].map(m => (
-                <TouchableOpacity 
-                  key={m} 
+                <TouchableOpacity
+                  key={m}
                   style={[styles.adjustBtn, { backgroundColor: m > 0 ? colors.primary + '15' : '#fee2e2' }]}
                   onPress={() => adjustTimer(adjustingKey, m * 60)}
                 >
@@ -1790,7 +1944,7 @@ export default function FocusScreen() {
               <Text style={styles.menuTitle}>Dashboard Order</Text>
               <TouchableOpacity onPress={() => setShowReorder(false)}><Ionicons name="close" size={24} color={colors.textSecondary} /></TouchableOpacity>
             </View>
-            
+
             <View style={styles.reorderList}>
               {activeTimerKeys.map((key, index) => {
                 const cat = categories.find(c => c.key === key) || { label: key, color: '#94a3b8' };
@@ -1816,7 +1970,7 @@ export default function FocusScreen() {
                 );
               })}
             </View>
-            
+
             <TouchableOpacity style={styles.adjustClose} onPress={() => setShowReorder(false)}>
               <Text style={styles.adjustCloseText}>Done</Text>
             </TouchableOpacity>
@@ -1826,17 +1980,17 @@ export default function FocusScreen() {
 
       {/* Category Picker modal */}
       <Modal visible={showCategoryPicker} animationType="fade" transparent>
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
           onPress={() => setShowCategoryPicker(false)}
         >
           <View style={styles.pickerContent}>
             <Text style={styles.pickerTitle}>Select Category</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.pickerGrid}>
               {categories.map(cat => (
-                <TouchableOpacity 
-                  key={cat.key} 
+                <TouchableOpacity
+                  key={cat.key}
                   style={styles.pickerItem}
                   onPress={() => {
                     addVisibleTimer(cat.key);
@@ -1859,9 +2013,9 @@ export default function FocusScreen() {
 
       {/* Date Picker Modal */}
       <Modal visible={showDatePicker} animationType="fade" transparent>
-        <TouchableOpacity 
-          style={styles.modalOverlay} 
-          activeOpacity={1} 
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
           onPress={() => setShowDatePicker(false)}
         >
           <View style={[styles.pickerContent, { maxHeight: '60%' }]}>
@@ -1872,8 +2026,8 @@ export default function FocusScreen() {
                 d.setDate(d.getDate() - (29 - i));
                 return d;
               }).reverse().map((date, idx) => (
-                <TouchableOpacity 
-                  key={idx} 
+                <TouchableOpacity
+                  key={idx}
                   style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}
                   onPress={() => {
                     if (scrollRef.current) {
@@ -1891,7 +2045,7 @@ export default function FocusScreen() {
       </Modal>
 
       {/* Cat Manager */}
-      <CategoryManagerModal 
+      <CategoryManagerModal
         visible={showCatModal}
         categories={categories}
         onSave={(newCats) => { setCategories(newCats); setShowCatModal(false); }}
@@ -1915,8 +2069,19 @@ export default function FocusScreen() {
         basePoints={pendingFocusReward?.basePoints || 0}
         onClose={() => setPendingFocusReward(null)}
         onClaim={(pts) => {
-          addReward(pts, Math.floor(pts / 2));
+          addReward(pts, Math.floor(pts / 4)); // XP is half of original points logic (1/4 of total now)
           setPendingFocusReward(null);
+        }}
+      />
+
+      <UnproductivePenaltyModal
+        visible={!!pendingPenalty}
+        minutes={pendingPenalty?.minutes || 0}
+        baseDeduction={pendingPenalty?.baseDeduction || 0}
+        onClose={() => setPendingPenalty(null)}
+        onDeduct={(pts) => {
+          removeReward(pts, 0); // Only deduct spendable points, no XP
+          setPendingPenalty(null);
         }}
       />
 
@@ -1959,7 +2124,7 @@ const styles = StyleSheet.create({
   // Dashboard
   dashboardSection: { marginBottom: 20 },
   carouselContent: { paddingLeft: 20, paddingRight: 8, paddingBottom: 10 },
-  
+
   clockWrapper: { alignItems: 'center', width: 110, marginRight: 16 },
   clockCircle: {
     width: 110,
@@ -2090,7 +2255,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textSecondary,
   },
-  
+
   // Confirmation Modal
   confirmOverlay: {
     flex: 1,
@@ -2237,7 +2402,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: colors.textSecondary,
   },
-  
+
   reorderContent: {
     width: '90%',
     backgroundColor: '#fff',
@@ -2334,6 +2499,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  todaySummaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
   },
   summaryDot: {
     width: 8,
@@ -2822,4 +2992,21 @@ const styles = StyleSheet.create({
   scoreCircle: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary + '10', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff', shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 10 },
   scoreVal: { fontSize: 20, fontWeight: '800', color: colors.primary },
   scoreLabel: { fontSize: 8, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5 },
+  scoreCircleSmall: {
+    width: 54,
+    height: 54,
+    borderRadius: 27,
+    backgroundColor: colors.primary + '10',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+    shadowColor: colors.primary,
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    marginRight: 14, // Pushes it further left from the category text
+    marginTop: 15,   // Moves it down
+  },
+  scoreValSmall: { fontSize: 14, fontWeight: '900', color: colors.primary },
+  scoreLabelSmall: { fontSize: 6, fontWeight: '800', color: colors.textMuted, textTransform: 'uppercase', marginTop: -2 },
 });

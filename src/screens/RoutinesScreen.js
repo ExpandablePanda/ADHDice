@@ -472,7 +472,7 @@ function PickerScreen({ tasks, existingIds, onAdd, onBack }) {
 
 export default function RoutinesScreen() {
   const { routines, addRoutine, updateRoutine, deleteRoutine } = useRoutines();
-  const { tasks, setTasks } = useTasks();
+  const { tasks, setTasks, completeTask } = useTasks();
   const { colors } = useTheme();
 
   const [openRoutineId, setOpenRoutineId] = useState(null);
@@ -487,17 +487,8 @@ export default function RoutinesScreen() {
   const closeAll  = () => { setNavScreen(null); setOpenRoutineId(null); };
 
   const handleUpdateTask = useCallback((taskId, newStatus) => {
-    const today = getLocalDateKey();
-    setTasks(prev => prev.map(t => 
-      t.id === taskId 
-        ? { 
-            ...t, 
-            status: newStatus, 
-            statusHistory: { ...(t.statusHistory || {}), [today]: newStatus } 
-          } 
-        : t
-    ));
-  }, [setTasks]);
+    completeTask(taskId, newStatus);
+  }, [completeTask]);
 
   const handleAddTask = (taskIds) => {
     if (liveRoutine) {

@@ -7,20 +7,21 @@ import { supabase } from './supabase';
 const FocusContext = createContext();
 
 export const DEFAULT_CATEGORIES = [
-  { key: 'work',        label: 'Work',          color: '#4f46e5', icon: 'briefcase-outline', nature: 'productive' },
-  { key: 'lamprey',     label: 'Lamprey (Work)',color: '#4338ca', icon: 'flash-outline',     nature: 'productive' },
-  { key: 'study',       label: 'Study',         color: '#0891b2', icon: 'book-outline',      nature: 'productive' },
-  { key: 'learning',    label: 'Learning',      color: '#0e7490', icon: 'school-outline',    nature: 'productive' },
-  { key: 'creative',    label: 'Creative',      color: '#7c3aed', icon: 'color-palette-outline', nature: 'productive' },
-  { key: 'exercise',    label: 'Exercise',      color: '#059669', icon: 'fitness-outline',    nature: 'productive' },
-  { key: 'chores',      label: 'Chores',        color: '#d97706', icon: 'home-outline',       nature: 'productive' },
-  { key: 'tcg',         label: 'TCG (Social)',  color: '#be185d', icon: 'people-outline',    nature: 'entertainment' },
-  { key: 'music',       label: 'Music (Ent.)',  color: '#db2777', icon: 'musical-notes-outline', nature: 'entertainment' },
-  { key: 'entertainment',label: 'Entertainment', color: '#c026d3', icon: 'tv-outline',        nature: 'entertainment' },
-  { key: 'social',      label: 'Social',        color: '#e11d48', icon: 'chatbubble-outline', nature: 'entertainment' },
-  { key: 'personal',    label: 'Personal',      color: '#ec4899', icon: 'person-outline',     nature: 'entertainment' },
-  { key: 'sleep',       label: 'Sleep',         color: '#3b82f6', icon: 'moon-outline',       nature: 'sleep' },
-  { key: 'other',       label: 'Other',         color: '#6b7280', icon: 'ellipsis-horizontal-outline', nature: 'entertainment' },
+  { key: 'work',        label: 'Work',          color: '#4f46e5', icon: 'briefcase-outline', nature: 'productive', subtype: null },
+  { key: 'lamprey',     label: 'Lamprey (Work)',color: '#4338ca', icon: 'flash-outline',     nature: 'productive', subtype: null },
+  { key: 'study',       label: 'Study',         color: '#0891b2', icon: 'book-outline',      nature: 'productive', subtype: null },
+  { key: 'learning',    label: 'Learning',      color: '#0e7490', icon: 'school-outline',    nature: 'productive', subtype: null },
+  { key: 'creative',    label: 'Creative',      color: '#7c3aed', icon: 'color-palette-outline', nature: 'productive', subtype: null },
+  { key: 'exercise',    label: 'Exercise',      color: '#059669', icon: 'fitness-outline',    nature: 'productive', subtype: null },
+  { key: 'chores',      label: 'Chores',        color: '#d97706', icon: 'home-outline',       nature: 'productive', subtype: null },
+  { key: 'tcg',         label: 'TCG (Social)',  color: '#be185d', icon: 'people-outline',    nature: 'entertainment', subtype: null },
+  { key: 'music',       label: 'Music (Ent.)',  color: '#db2777', icon: 'musical-notes-outline', nature: 'entertainment', subtype: null },
+  { key: 'entertainment',label: 'Entertainment', color: '#c026d3', icon: 'tv-outline',        nature: 'entertainment', subtype: null },
+  { key: 'doomscrolling',label: 'Doomscrolling', color: '#4b5563', icon: 'skull-outline',    nature: 'entertainment', subtype: 'unproductive' },
+  { key: 'social',      label: 'Social',        color: '#e11d48', icon: 'chatbubble-outline', nature: 'entertainment', subtype: null },
+  { key: 'personal',    label: 'Personal',      color: '#ec4899', icon: 'person-outline',     nature: 'entertainment', subtype: null },
+  { key: 'sleep',       label: 'Sleep',         color: '#3b82f6', icon: 'moon-outline',       nature: 'sleep', subtype: null },
+  { key: 'other',       label: 'Other',         color: '#6b7280', icon: 'ellipsis-horizontal-outline', nature: 'entertainment', subtype: null },
 ];
 
 export function FocusProvider({ children }) {

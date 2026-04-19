@@ -3,13 +3,14 @@ import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, SectionList, FlatList, TouchableOpacity, TextInput,
   StyleSheet, Modal, KeyboardAvoidingView, Platform, Image,
-  ScrollView, Alert, Animated, RefreshControl,
+  ScrollView, Alert, Animated, RefreshControl, AppState
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
-import { useTasks, getLocalDateKey, getAppDayKey, calculateTaskStreak, calculateTaskMissedStreak, STATUSES, STATUS_ORDER } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey, getAppDayKey, calculateTaskStreak, calculateTaskMissedStreak, STATUSES, STATUS_ORDER, mapSubtasks, calcNextDueDate } from '../lib/TasksContext';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useSettings } from '../lib/SettingsContext';
@@ -45,59 +46,8 @@ const VIEWS = [
 ];
 
 // ── ID helpers ────────────────────────────────────────────────────────────────
-const generateId = () => Math.random().toString(36).substring(2, 9) + Date.now().toString(36);
 const newSubtask  = title => ({ id: generateId(), title, status: 'pending', subtasks: [] });
 const BLANK       = () => ({ id: null, title: '', status: 'pending', energy: null, dueDate: '', tags: [], subtasks: [], streak: 0, isPriority: false, isUrgent: false, statusHistory: {}, frequencyDays: null, estimatedMinutes: null, weeklyDay: null, weeklyMode: null });
-
-// ── Frequency / next-due-date helper ─────────────────────────────────────────
-function calcNextDueDate(task, dayStartTime = 6) {
-  if (!task.frequency) return null;
-  const useToday = task.frequency === 'DaysAfter' || task.weeklyMode === 'days_after';
-  let base;
-  if (useToday) {
-    base = new Date();
-  } else {
-    base = task.dueDate ? new Date(task.dueDate) : new Date();
-    if (isNaN(base.valueOf())) base = new Date();
-    
-    // If the due date is in the past, catch up to today
-    const today = new Date();
-    // If current time is < dayStartTime, "today" for task purposes is still yesterday
-    if (today.getHours() < dayStartTime) {
-      today.setDate(today.getDate() - 1);
-    }
-    today.setHours(0,0,0,0);
-    if (base < today) {
-      base = today;
-    }
-  }
-  if (task.frequency === 'Daily') {
-    base.setDate(base.getDate() + 1);
-  } else if (task.frequency === 'Weekly') {
-    if (task.weeklyMode === 'days_after') {
-      base.setDate(base.getDate() + 7);
-    } else if (task.weeklyDay != null) {
-      const targetDay = task.weeklyDay;
-      let daysAhead = (targetDay - base.getDay() + 7) % 7;
-      if (daysAhead === 0) daysAhead = 7;
-      base.setDate(base.getDate() + daysAhead);
-    } else {
-      base.setDate(base.getDate() + 7);
-    }
-  } else if (task.frequency === 'Monthly') {
-    base.setMonth(base.getMonth() + 1);
-  } else if (task.frequency === 'Yearly') {
-    base.setFullYear(base.getFullYear() + 1);
-  } else if (task.frequency === 'DaysAfter') {
-    base.setDate(base.getDate() + (task.frequencyDays || 1));
-  }
-  return getLocalDateKey(base);
-}
-
-// ── Recursive subtask helpers ─────────────────────────────────────────────────
-function mapSubtasks(subtasks, fn) {
-  return subtasks.map(s => fn({ ...s, subtasks: mapSubtasks(s.subtasks || [], fn) }));
-}
 function toggleById(subtasks, id, targetStatus) {
   return mapSubtasks(subtasks, s => {
     if (s.id !== id) return s;
@@ -2308,7 +2258,7 @@ function MorningStartModal({ onClaimReward, onStartPlanning, onClose }) {
 
           <View style={{ width: '100%', gap: 12, marginTop: 12 }}>
             <TouchableOpacity style={styles.morningPlanBtn} onPress={onStartPlanning}>
-              <Text style={styles.morningPlanText}>Plan My Day</Text>
+              <Text style={styles.morningPlanText}>Start Planning</Text>
               <Ionicons name="chevron-forward" size={18} color="#fff" />
             </TouchableOpacity>
             
@@ -2460,7 +2410,10 @@ function FocusYourDay({ tasks, onComplete, forceOpen = false }) {
 export default function TasksScreen() {
   const { colors } = useTheme();
   const { dayStartTime } = useSettings();
-  const { tasks, setTasks, logTaskEvent, taskHistory, isSyncing, breakTimer, setBreakTimer } = useTasks();
+  const { 
+    tasks, setTasks, logTaskEvent, taskHistory, isSyncing, 
+    breakTimer, setBreakTimer, completeTask 
+  } = useTasks();
   const [refreshing, setRefreshing] = useState(false);
 
   const onRefresh = async () => {
@@ -2535,21 +2488,43 @@ export default function TasksScreen() {
   const [showMorningStart, setShowMorningStart] = useState(false);
   const [forceFocusOpen, setForceFocusOpen] = useState(false);
 
-  // Check for Morning Start UI
-  useEffect(() => {
-    async function checkMorning() {
-      const now = new Date();
-      // Only show between dayStartTime (e.g. 6 AM) and 11 AM
-      if (now.getHours() >= dayStartTime && now.getHours() < 11) {
-        const todayKey = getLocalDateKey(now);
-        const lastStart = await AsyncStorage.getItem('@ADHD_last_morning_start');
-        if (lastStart !== todayKey) {
-          setShowMorningStart(true);
-        }
+  // Check for Morning Start UI (Enforced Window: dayStartTime to 11 AM)
+  const checkMorning = React.useCallback(async () => {
+    const now = new Date();
+    const currentHour = now.getHours();
+    
+    // Only show between dayStartTime (e.g. 6 AM) and 11 AM
+    if (currentHour >= dayStartTime && currentHour < 11) {
+      const todayKey = getLocalDateKey(now);
+      const lastStart = await AsyncStorage.getItem('@ADHD_last_morning_start');
+      
+      if (lastStart !== todayKey) {
+        setShowMorningStart(true);
       }
     }
-    checkMorning();
   }, [dayStartTime]);
+
+  // Run on mount and whenever dayStartTime changes
+  useEffect(() => {
+    checkMorning();
+  }, [checkMorning]);
+
+  // Run whenever the screen comes into focus
+  useFocusEffect(
+    React.useCallback(() => {
+      checkMorning();
+    }, [checkMorning])
+  );
+
+  // Run whenever the app returns to the foreground
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        checkMorning();
+      }
+    });
+    return () => subscription.remove();
+  }, [checkMorning]);
 
   const handleMorningClose = async () => {
     const todayKey = getLocalDateKey();
@@ -2778,6 +2753,7 @@ export default function TasksScreen() {
         _backdatedCompletedAt: new Date().getHours() < dayStartTime ? new Date().toISOString() : null
       });
       
+      // Update local state history so the UI reflects the change immediately
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, statusHistory: { ...(t.statusHistory || {}), [appDay]: targetStatus } } : t));
     } else if (targetStatus === 'missed') {
       Alert.alert(
@@ -2787,34 +2763,13 @@ export default function TasksScreen() {
           { text: "Cancel", style: "cancel" },
           { text: "Confirm Missed", style: "destructive", onPress: () => {
               incrementMissedStreak();
-              logTaskEvent(task, 'missed');
-              const updatedHistory = { ...(task.statusHistory || {}), [appDay]: 'missed' };
-              const nextDue = calcNextDueDate(task, dayStartTime);
-              setTasks(prev => prev.map(t => t.id === taskId ? {
-                ...t,
-                status: 'missed',
-                streak: calculateTaskStreak(updatedHistory, dayStartTime),
-                statusHistory: updatedHistory,
-                ...(nextDue ? { dueDate: nextDue } : {}),
-              } : t));
+              completeTask(taskId, 'missed'); // unified logic handles history, streak, and rollover
           }}
         ]
       );
     } else {
-      const existing = tasks.find(t => t.id === taskId);
-      if ((task.status === 'done' || task.status === 'did_my_best') && task.gainedReward) {
-        removeReward(task.gainedReward.points, task.gainedReward.xp);
-      }
-      const updatedHistory = { ...(existing.statusHistory || {}), [appDay]: targetStatus };
-      setTasks(prev => prev.map(t => t.id === taskId ? { 
-        ...t, 
-        status: targetStatus, 
-        gainedReward: null, 
-        completedAt: null, 
-        streak: calculateTaskStreak(updatedHistory, dayStartTime), 
-        statusHistory: updatedHistory 
-      } : t));
-      logTaskEvent(existing, targetStatus);
+      // Use unified logic for other status changes
+      completeTask(taskId, targetStatus);
     }
   }
 
@@ -2861,90 +2816,30 @@ export default function TasksScreen() {
     const isTodayHistory = completingTask?._isHistoryCompletion && 
                            completingTask?._dateKey === getLocalDateKey();
     
-    if (completingTask?._isHistoryCompletion && !isTodayHistory) {
-      setCompletingTask(null);
-      return;
-    }
-
-    // Normal completion
-    setTasks(prev => prev.map(t => {
-      if (t.id === id) {
-        return { 
-          ...t, 
-          status: 'done', 
-          completedAt: new Date().toISOString(),
-          gainedReward: reward,
-          streak: calculateTaskStreak({ ...(t.statusHistory || {}), [getLocalDateKey()]: 'done' }, dayStartTime)
-        };
-      }
-      return t;
-    }));
-
-    if (completingTask?.isSubtaskRoll) {
-      setCompletingTask(null);
-      if (rewardQueue.length > 0) {
-        const [next, ...rest] = rewardQueue;
-        setRewardQueue(rest);
-        setTimeout(() => setCompletingTask(next), 400);
-      }
-      return;
-    }
-
-    const today = getAppDayKey(dayStartTime);
-
-    setTasks(prev => prev.map(t => {
-      // Use loose equality (==) or cast to String to prevent numeric ID mismatches
-      if (!completingTask.parentTaskId && String(t.id) === String(id)) {
-        let nextData = {};
-        if (t.frequency) {
-          // Safety: ensure next data is calculated correctly for recurring rollovers
-          const formatted = calcNextDueDate(t, dayStartTime);
-          nextData.dueDate = formatted;
-          nextData.status = 'upcoming';
-          nextData.gainedReward = null;
-          nextData.completedAt = null;
-          nextData.subtasks = mapSubtasks(t.subtasks || [], s => ({ ...s, status: 'upcoming' }));
+    // Unified completion logic
+    if (completingTask.parentTaskId) {
+      // SUBTASK COMPLETION
+      setTasks(prev => prev.map(t => {
+        if (String(t.id) === String(completingTask.parentTaskId)) {
+          let subToLog = null;
+          const updatedSubtasks = mapSubtasks(t.subtasks || [], s => {
+             if (String(s.id) === String(id)) {
+               const updatedSub = { ...s, status: completingTask.intent, gainedReward: reward, completedAt: new Date().toISOString() };
+               subToLog = updatedSub;
+               return updatedSub;
+             }
+             return s;
+          });
+          if (subToLog) logTaskEvent(subToLog, completingTask.intent);
+          return { ...t, subtasks: updatedSubtasks };
         }
-        // For recurring tasks nextData overrides status/gainedReward/completedAt; for one-off tasks use completion intent
-        const intent = completingTask.intent || completingTask.status || 'done';
-        const finalStatus = nextData.status || intent;
-        const finalReward = nextData.status ? null : reward; // recurring tasks don't hold a reward
-        // Use backdated timestamp if provided (e.g. midnight confirm "done")
-        const finalCompletedAt = nextData.status ? null : (completingTask._backdatedCompletedAt || new Date().toISOString());
-        // Use the backdated date key if available
-        const historyKey = completingTask._dateKey || today;
-        
-        const updatedHistory = { ...(t.statusHistory || {}), [historyKey]: intent };
-        const updated = {
-          ...t,
-          gainedReward: finalReward,
-          completedAt: finalCompletedAt,
-          ...nextData,
-          status: finalStatus,
-          statusHistory: updatedHistory,
-          streak: calculateTaskStreak(updatedHistory, dayStartTime),
-        };
-        logTaskEvent(updated, intent);
-        return updated;
-      }
-      
-      // If completing a subtask inside this parent task
-      if (completingTask.parentTaskId && t.id === completingTask.parentTaskId) {
-        let subToLog = null;
-        const updatedSubtasks = mapSubtasks(t.subtasks || [], s => {
-           if (s.id === id) {
-             const updatedSub = { ...s, status: completingTask.intent, gainedReward: reward, completedAt: new Date().toISOString() };
-             subToLog = updatedSub;
-             return updatedSub;
-           }
-           return s;
-        });
-        if (subToLog) logTaskEvent(subToLog, completingTask.intent);
-        return { ...t, subtasks: updatedSubtasks };
-      }
-
-      return t;
-    }));
+        return t;
+      }));
+    } else {
+      // MAIN TASK COMPLETION
+      completeTask(id, completingTask.intent || completingTask.status || 'done', completingTask._dateKey, reward);
+    }
+    
     setCompletingTask(null);
 
     // Process next in reward queue if any
@@ -3525,50 +3420,7 @@ export default function TasksScreen() {
               }
             }}
             onUpdateHistory={(taskId, date, status) => {
-              const existingTask = tasks.find(t => String(t.id) === String(taskId));
-              const oldStatus = existingTask?.statusHistory?.[date];
-              const wasCompleted = oldStatus === 'done' || oldStatus === 'did_my_best';
-              const isNowCompleted = status === 'done' || status === 'did_my_best';
-              if (!wasCompleted && isNowCompleted) {
-                setHistoryNewCompletions(prev => prev + 1);
-              } else if (wasCompleted && !isNowCompleted) {
-                setHistoryNewCompletions(prev => Math.max(0, prev - 1));
-              }
-              setTasks(prev => prev.map(t => {
-                if (String(t.id) !== String(taskId)) return t;
-                const h = { ...(t.statusHistory || {}) };
-                if (status === null) { delete h[date]; } else { h[date] = status; }
-                const today = getLocalDateKey();
-                const isToday = date === today;
-                const isDone = status === 'done' || status === 'did_my_best';
-
-                let next = { 
-                  ...t, 
-                  statusHistory: h,
-                  streak: calculateTaskStreak(h, dayStartTime)
-                };
-
-                if (isToday) {
-                  if (isDone && t.frequency) {
-                    // ATOMIC SYNC: Rollover immediately for today's history edits
-                    const nextDate = calcNextDueDate(t, dayStartTime);
-                    next.status = 'upcoming';
-                    next.dueDate = nextDate;
-                    next.completedAt = new Date().toISOString();
-                    if (t.subtasks && t.subtasks.length > 0) {
-                      const resetSubs = (list) => list.map(s => ({
-                        ...s,
-                        status: 'upcoming',
-                        subtasks: s.subtasks ? resetSubs(s.subtasks) : []
-                      }));
-                      next.subtasks = resetSubs(t.subtasks);
-                    }
-                  } else {
-                    next.status = status || 'pending';
-                  }
-                }
-                return next;
-              }));
+              completeTask(taskId, status, date);
             }}
             onFillRange={(taskId, entries) => {
               setTasks(prev => prev.map(t => {

@@ -104,17 +104,66 @@ export function calculateTaskStreak(history = {}, dayStartTime = 6) {
     const key = getLocalDateKey(d);
     const s = history[key];
     
+    // If today is not marked yet, we don't count it for streak yet
+    if (i === 0 && !s) continue;
+
     if (s === 'done' || s === 'did_my_best') {
       streak++;
-    } else if (i === 0) {
-      // today might not be done yet, skip it but DON'T break
-      continue;
     } else {
-      // Any other status (missed, pending, etc) on a past day breaks the streak
       break;
     }
   }
   return streak;
+}
+
+// ── Shared Task Helpers ──────────────────────────────────────────────────────
+
+export function mapSubtasks(subtasks = [], fn) {
+  return subtasks.map(s => fn({ ...s, subtasks: mapSubtasks(s.subtasks || [], fn) }));
+}
+
+export function calcNextDueDate(task, dayStartTime = 6) {
+  if (!task.frequency) return null;
+  const useToday = task.frequency === 'DaysAfter' || task.weeklyMode === 'days_after';
+  let base;
+  if (useToday) {
+    base = new Date();
+  } else {
+    base = task.dueDate ? new Date(task.dueDate) : new Date();
+    if (isNaN(base.valueOf())) base = new Date();
+    
+    // If the due date is in the past, catch up to today
+    const today = new Date();
+    // If current time is < dayStartTime, "today" for task purposes is still yesterday
+    if (today.getHours() < dayStartTime) {
+      today.setDate(today.getDate() - 1);
+    }
+    today.setHours(0,0,0,0);
+    if (base < today) {
+      base = today;
+    }
+  }
+  if (task.frequency === 'Daily') {
+    base.setDate(base.getDate() + 1);
+  } else if (task.frequency === 'Weekly') {
+    if (task.weeklyMode === 'days_after') {
+      base.setDate(base.getDate() + 7);
+    } else if (task.weeklyDay != null) {
+      const targetDay = task.weeklyDay;
+      let daysAhead = (targetDay - base.getDay() + 7) % 7;
+      if (daysAhead === 0) daysAhead = 7;
+      base.setDate(base.getDate() + daysAhead);
+    } else {
+      base.setDate(base.getDate() + 7);
+    }
+  } else if (task.frequency === 'Monthly') {
+    base.setMonth(base.getMonth() + 1);
+  } else if (task.frequency === 'Yearly') {
+    base.setFullYear(base.getFullYear() + 1);
+  } else if (task.frequency === 'DaysAfter') {
+    base.setDate(base.getDate() + (task.frequencyDays || 1));
+  }
+  return getLocalDateKey(base);
 }
 
 export function TasksProvider({ children }) {
@@ -514,6 +563,54 @@ export function TasksProvider({ children }) {
     }
   }, [breakTimer?.endTime]);
 
+  const completeTask = useCallback((taskId, intentStatus = 'done', dateKey = null, reward = null) => {
+    const today = getAppDayKey(dayStartTime);
+    const historyKey = dateKey || today;
+    const isCompletion = intentStatus === 'done' || intentStatus === 'did_my_best';
+
+    setTasks(prev => prev.map(t => {
+      if (String(t.id) !== String(taskId)) return t;
+
+      const updatedHistory = { ...(t.statusHistory || {}), [historyKey]: intentStatus };
+      const newStreak = calculateTaskStreak(updatedHistory, dayStartTime);
+      
+      let nextData = {};
+      if (isCompletion && t.frequency) {
+        // RECURRING ROLLOVER
+        const nextDate = calcNextDueDate(t, dayStartTime);
+        nextData = {
+          status: 'upcoming',
+          dueDate: nextDate,
+          completedAt: null,
+          gainedReward: null,
+          subtasks: mapSubtasks(t.subtasks || [], s => ({ ...s, status: 'upcoming' }))
+        };
+      } else if (isCompletion) {
+        // ONE-OFF COMPLETION
+        nextData = {
+          status: intentStatus,
+          completedAt: new Date().toISOString(),
+          gainedReward: reward
+        };
+      } else {
+        // STATUS CHANGE ONLY
+        nextData = {
+          status: intentStatus
+        };
+      }
+
+      const updated = {
+        ...t,
+        ...nextData,
+        statusHistory: updatedHistory,
+        streak: newStreak
+      };
+
+      logTaskEvent(updated, intentStatus);
+      return updated;
+    }));
+  }, [dayStartTime, setTasks, logTaskEvent]);
+
   if (!loaded) return null;
 
   return (
@@ -522,7 +619,8 @@ export function TasksProvider({ children }) {
       taskHistory, logTaskEvent, 
       isSyncing,
       breakTimer, setBreakTimer, startBreak,
-      adjustBreakTime, linkPrizeToBreak
+      adjustBreakTime, linkPrizeToBreak,
+      completeTask
     }}>
       {children}
     </TasksContext.Provider>

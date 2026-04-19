@@ -11,10 +11,20 @@ import { useTheme } from '../lib/ThemeContext';
 import { useEconomy } from '../lib/EconomyContext';
 import ScrollToTop from '../components/ScrollToTop';
 import { colors } from '../theme';
-import { useTasks, getLocalDateKey } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey, getAppDayKey } from '../lib/TasksContext';
 import TaskResultModal from '../components/TaskResultModal';
 
 const SCREEN_W = Dimensions.get('window').width;
+const SCREEN_H = Dimensions.get('window').height;
+
+function fmtTimer(totalSeconds) {
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor((totalSeconds % 3600) / 60);
+  const s = totalSeconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 const CARD_W = (SCREEN_W - 80) / 4;
 const CARD_H = CARD_W * 1.4;
 const BATTLE_W = (SCREEN_W - 50) / 2;
@@ -548,7 +558,7 @@ const diceStyles = StyleSheet.create({
 // ═════════════════════════════════════════════════════════════════════════════
 
 function WarGame({ onBack, tasks, colors }) {
-  const { logTaskEvent, setTasks } = useTasks();
+  const { logTaskEvent, setTasks, completeTask } = useTasks();
   const { addReward } = useEconomy();
   const [completingWarTask, setCompletingWarTask] = useState(null);
 
@@ -711,19 +721,7 @@ function WarGame({ onBack, tasks, colors }) {
 
   function handleWarRewardClaim(taskId, results) {
     if (opponentCard) {
-      const today = getLocalDateKey();
-      // 1. Log to history
-      logTaskEvent({ id: opponentCard.originalId, title: opponentCard.title, tags: [], energy: 'medium' }, 'done');
-      
-      // 2. Update actual task status AND history grid in the main list
-      setTasks(prev => prev.map(t => {
-        if (t.id === opponentCard.originalId) {
-          const h = { ...(t.statusHistory || {}) };
-          h[today] = 'done';
-          return { ...t, status: 'done', statusHistory: h };
-        }
-        return t;
-      }));
+      completeTask(opponentCard.originalId, 'done');
     }
     setCompletingWarTask(null);
     
@@ -813,6 +811,264 @@ function FocusBreather({ onBack, colors }) {
 }
 
 const MATCH_ICONS = ['shield', 'flash', 'flask', 'heart', 'ribbon', 'trophy', 'diamond', 'skull'];
+function EnergyRamp({ onBack, colors, tasks }) {
+  const { addReward, addFreeRoll } = useEconomy();
+  const { logTaskEvent, setTasks, completeTask } = useTasks();
+  
+  const [phase, setPhase] = useState('setup'); // setup | play | success | late
+  const [selectedLow, setSelectedLow] = useState([]);
+  const [selectedMed, setSelectedMed] = useState([]);
+  const [selectedHigh, setSelectedHigh] = useState([]);
+  const [timeEstimate, setTimeEstimate] = useState(60); // minutes
+  const [startTime, setStartTime] = useState(null);
+  const [elapsed, setElapsed] = useState(0);
+  const [completedIds, setCompletedIds] = useState([]);
+  const [showPrizePicker, setShowPrizePicker] = useState(false);
+  const [showD20Roll, setShowD20Roll] = useState(false);
+
+  const todayKey = getAppDayKey();
+  const availableTasks = tasks.filter(t => {
+    if (t.status === 'done') return false;
+    
+    // Include specific statuses
+    const isSpecialStatus = ['pending', 'active', 'missed', 'first_step', 'upcoming'].includes(t.status);
+    if (isSpecialStatus) return true;
+
+    // Include urgent, priority, or tasks with active streaks
+    if (t.isUrgent || t.isPriority || (t.streak > 0)) return true;
+
+    // Include anything due today (App Day)
+    if (t.dueDate === todayKey) return true;
+
+    return false;
+  });
+  const lowTasks = availableTasks.filter(t => t.energy === 'low' || !t.energy);
+  const medTasks = availableTasks.filter(t => t.energy === 'medium');
+  const highTasks = availableTasks.filter(t => t.energy === 'high');
+
+  useEffect(() => {
+    let interval;
+    if (phase === 'play' && startTime) {
+      interval = setInterval(() => {
+        setElapsed(Math.floor((Date.now() - startTime) / 1000));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [phase, startTime]);
+
+  const toggleTask = (id, type) => {
+    const setters = { low: setSelectedLow, med: setSelectedMed, high: setSelectedHigh };
+    const limits = { low: 3, med: 2, high: 1 };
+    
+    setters[type](prev => {
+      if (prev.includes(id)) return prev.filter(i => i !== id);
+      if (prev.length >= limits[type]) return prev;
+      return [...prev, id];
+    });
+  };
+
+  const handleStart = () => {
+    if (selectedLow.length < 3 || selectedMed.length < 2 || selectedHigh.length < 1) {
+      Alert.alert('Selection Incomplete', 'Please choose 3 Low, 2 Medium, and 1 High energy task.');
+      return;
+    }
+    setStartTime(Date.now());
+    setPhase('play');
+  };
+
+  const allSelectedIds = [...selectedLow, ...selectedMed, ...selectedHigh];
+  const allCompleted = allSelectedIds.every(id => completedIds.includes(id));
+
+  const handleTaskCheck = (taskId) => {
+    if (completedIds.includes(taskId)) return;
+    
+    const task = tasks.find(t => t.id === taskId);
+    if (task) {
+      completeTask(taskId, 'done');
+    }
+    
+    setCompletedIds(prev => [...prev, taskId]);
+  };
+
+  const handleFinish = () => {
+    const limitSec = timeEstimate * 60;
+    if (elapsed <= limitSec) {
+      setPhase('success');
+      setShowPrizePicker(true);
+    } else {
+      setPhase('late');
+      setShowD20Roll(true);
+    }
+  };
+
+  const renderTaskItem = (task, type) => {
+    const isSelected = (type === 'low' ? selectedLow : type === 'med' ? selectedMed : selectedHigh).includes(task.id);
+    return (
+      <TouchableOpacity 
+        key={task.id} 
+        style={[rampStyles.taskItem, isSelected && { borderColor: colors.primary, backgroundColor: colors.primary + '10' }]} 
+        onPress={() => toggleTask(task.id, type)}
+      >
+        <Ionicons name={isSelected ? "checkbox" : "square-outline"} size={20} color={isSelected ? colors.primary : colors.textMuted} />
+        <Text style={[rampStyles.taskText, isSelected && { color: colors.textPrimary }]}>{task.title}</Text>
+      </TouchableOpacity>
+    );
+  };
+
+  if (phase === 'setup') {
+    return (
+      <View style={hubStyles.gameWrapper}>
+        <View style={styles.header}><TouchableOpacity onPress={onBack}><Ionicons name="arrow-back" size={24} color={colors.textSecondary}/></TouchableOpacity><Text style={styles.headerTitle}>Energy Ramp</Text></View>
+        <ScrollView contentContainerStyle={rampStyles.container}>
+          <Text style={rampStyles.sectionTitle}>1. Choose 3 Low Energy Tasks</Text>
+          <View style={rampStyles.list}>{lowTasks.length ? lowTasks.map(t => renderTaskItem(t, 'low')) : <Text style={rampStyles.empty}>No low energy tasks found.</Text>}</View>
+          
+          <Text style={rampStyles.sectionTitle}>2. Choose 2 Medium Energy Tasks</Text>
+          <View style={rampStyles.list}>{medTasks.length ? medTasks.map(t => renderTaskItem(t, 'med')) : <Text style={rampStyles.empty}>No medium energy tasks found.</Text>}</View>
+          
+          <Text style={rampStyles.sectionTitle}>3. Choose 1 High Energy Task</Text>
+          <View style={rampStyles.list}>{highTasks.length ? highTasks.map(t => renderTaskItem(t, 'high')) : <Text style={rampStyles.empty}>No high energy tasks found.</Text>}</View>
+
+          <Text style={rampStyles.sectionTitle}>4. Estimate Time (Minutes)</Text>
+          <View style={rampStyles.timerInputRow}>
+            {[30, 60, 90, 120, 180].map(m => (
+              <TouchableOpacity key={m} style={[rampStyles.timeBtn, timeEstimate === m && { backgroundColor: colors.primary }]} onPress={() => setTimeEstimate(m)}>
+                <Text style={[rampStyles.timeBtnText, timeEstimate === m && { color: '#fff' }]}>{m}m</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <TouchableOpacity style={[rampStyles.startBtn, { backgroundColor: colors.primary }]} onPress={handleStart}>
+            <Text style={rampStyles.startBtnText}>Start Energy Ramp</Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (phase === 'play') {
+    const limitSec = timeEstimate * 60;
+    const isLate = elapsed > limitSec;
+    const progress = Math.min(completedIds.length / allSelectedIds.length, 1);
+
+    return (
+      <View style={hubStyles.gameWrapper}>
+        <View style={styles.header}><TouchableOpacity onPress={() => Alert.alert('Quit Game?', 'Progress will be lost.', [{text: 'Stay'}, {text: 'Quit', onPress: onBack}])}><Ionicons name="close" size={24} color={colors.textSecondary}/></TouchableOpacity><Text style={styles.headerTitle}>Active Ramp</Text></View>
+        <View style={rampStyles.playContainer}>
+          <View style={rampStyles.timerGlass}>
+            <Text style={[rampStyles.timerVal, isLate && { color: '#ef4444' }]}>{fmtTimer(Math.abs(limitSec - elapsed))}</Text>
+            <Text style={rampStyles.timerSub}>{isLate ? 'OVERTIME' : 'REMAINING'}</Text>
+          </View>
+
+          <View style={rampStyles.progressBar}>
+            <View style={[rampStyles.progressFill, { width: `${progress * 100}%`, backgroundColor: colors.primary }]} />
+          </View>
+
+          <ScrollView style={{ flex: 1, marginTop: 20 }}>
+            {allSelectedIds.map(id => {
+              const task = tasks.find(t => t.id === id);
+              const done = completedIds.includes(id);
+              return (
+                <TouchableOpacity key={id} style={[rampStyles.playTask, done && { opacity: 0.5 }]} onPress={() => handleTaskCheck(id)}>
+                  <Ionicons name={done ? "checkmark-circle" : "ellipse-outline"} size={24} color={done ? "#10b981" : colors.textMuted} />
+                  <Text style={[rampStyles.playTaskText, done && { textDecorationLine: 'line-through' }]}>{task.title}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          {allCompleted && (
+            <TouchableOpacity style={[rampStyles.finishBtn, { backgroundColor: '#10b981' }]} onPress={handleFinish}>
+              <Text style={rampStyles.finishBtnText}>Finish & Claim Reward</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+
+        <PrizePickerModal 
+          visible={showPrizePicker} 
+          onSelect={(prize) => { 
+            Alert.alert('Success!', `You won: ${prize}`);
+            onBack(); 
+          }} 
+          onClose={() => setShowPrizePicker(false)}
+        />
+        
+        <RecordDiceModal 
+          visible={showD20Roll} 
+          colors={colors} 
+          title="OVERTIME FINISH"
+          onReward={(pts, xp) => { 
+            addReward(pts, xp); 
+            onBack(); 
+          }} 
+        />
+      </View>
+    );
+  }
+
+  return null;
+}
+
+function PrizePickerModal({ visible, onSelect, onClose }) {
+  const prizes = [
+     '☕ Coffee break', '🎵 Pick a song', '🍫 Snack time', '📱 5 min phone break',
+     '🎮 1 hour gaming', '📺 Watch an episode', '🍕 Order takeout', '💤 Power nap',
+     '🛒 Buy something small', '📖 Read a chapter', '🧊 Ice cream', '💪 Skip a chore'
+  ];
+
+  return (
+    <Modal visible={visible} transparent animationType="slide">
+      <View style={rampStyles.modalOverlay}>
+        <View style={rampStyles.modalBody}>
+          <Text style={rampStyles.modalTitle}>Choose Your Prize!</Text>
+          <Text style={rampStyles.modalSub}>You beat the clock!</Text>
+          <ScrollView contentContainerStyle={rampStyles.prizeGrid}>
+            {prizes.map(p => (
+              <TouchableOpacity key={p} style={rampStyles.prizeCard} onPress={() => onSelect(p)}>
+                <Text style={rampStyles.prizeText}>{p}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <TouchableOpacity onPress={onClose} style={{ marginTop: 10 }}><Text style={{ color: '#9ca3af' }}>Cancel</Text></TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const rampStyles = StyleSheet.create({
+  container: { padding: 20, paddingBottom: 100 },
+  sectionTitle: { fontSize: 16, fontWeight: '800', color: '#1f2937', marginTop: 24, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
+  list: { gap: 8 },
+  taskItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#f3f4f6' },
+  taskText: { fontSize: 15, color: '#6b7280', fontWeight: '500' },
+  empty: { fontSize: 14, color: '#9ca3af', fontStyle: 'italic', paddingLeft: 4 },
+  timerInputRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  timeBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, borderWeight: 1, borderColor: '#e5e7eb', backgroundColor: '#fff' },
+  timeBtnText: { fontWeight: '700', color: '#6b7280' },
+  startBtn: { marginTop: 40, paddingVertical: 18, borderRadius: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6 },
+  startBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  
+  playContainer: { flex: 1, padding: 20 },
+  timerGlass: { backgroundColor: '#f9fafb', borderRadius: 24, padding: 24, alignItems: 'center', borderWidth: 1, borderColor: '#e5e7eb' },
+  timerVal: { fontSize: 48, fontWeight: '900', color: '#111827', fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace' },
+  timerSub: { fontSize: 12, fontWeight: '800', color: '#9ca3af', letterSpacing: 2, marginTop: 4 },
+  progressBar: { height: 8, backgroundColor: '#e5e7eb', borderRadius: 4, marginTop: 20, overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 4 },
+  playTask: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
+  playTaskText: { fontSize: 16, fontWeight: '600', color: '#1f2937' },
+  finishBtn: { paddingVertical: 18, borderRadius: 16, alignItems: 'center', marginBottom: 20 },
+  finishBtnText: { color: '#fff', fontSize: 18, fontWeight: '800' },
+  
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalBody: { width: '90%', maxHeight: '80%', backgroundColor: '#fff', borderRadius: 24, padding: 24, alignItems: 'center' },
+  modalTitle: { fontSize: 24, fontWeight: '900', color: '#111827' },
+  modalSub: { fontSize: 14, color: '#10b981', fontWeight: '700', marginBottom: 20 },
+  prizeGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, justifyContent: 'center' },
+  prizeCard: { backgroundColor: '#f3f4f6', paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb' },
+  prizeText: { fontWeight: '600', color: '#1f2937' },
+});
+
 function DopamineMatch({ onBack, colors, tasks }) {
   const [cards, setCards] = useState([]);
   const [flipped, setFlipped] = useState([]);
@@ -919,6 +1175,7 @@ export default function GamesScreen() {
   if (currentGame === 'war') return <WarGame onBack={() => setCurrentGame('hub')} tasks={tasks} colors={colors} />;
   if (currentGame === 'breather') return <FocusBreather onBack={() => setCurrentGame('hub')} colors={colors} />;
   if (currentGame === 'match') return <DopamineMatch onBack={() => setCurrentGame('hub')} colors={colors} tasks={tasks} />;
+  if (currentGame === 'ramp') return <EnergyRamp onBack={() => setCurrentGame('hub')} colors={colors} tasks={tasks} />;
 
   return (
     <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['bottom', 'left', 'right']}>
@@ -938,6 +1195,11 @@ export default function GamesScreen() {
           <TouchableOpacity style={hubStyles.hubCard} onPress={() => setCurrentGame('match')}>
             <View style={[hubStyles.hubIcon, { backgroundColor: '#fef3c7' }]}><Ionicons name="extension-puzzle" size={24} color="#f59e0b"/></View>
             <View style={hubStyles.hubInfo}><Text style={hubStyles.hubTitle}>Dopamine Match</Text><Text style={hubStyles.hubDesc}>Quick memory game for a mental jumpstart.</Text></View>
+            <Ionicons name="chevron-forward" size={18} color="#ccc"/>
+          </TouchableOpacity>
+          <TouchableOpacity style={hubStyles.hubCard} onPress={() => setCurrentGame('ramp')}>
+            <View style={[hubStyles.hubIcon, { backgroundColor: '#dcfce7' }]}><Ionicons name="trending-up" size={24} color="#22c55e"/></View>
+            <View style={hubStyles.hubInfo}><Text style={hubStyles.hubTitle}>Energy Ramp</Text><Text style={hubStyles.hubDesc}>Overcome time blindness by ramping up task difficulty.</Text></View>
             <Ionicons name="chevron-forward" size={18} color="#ccc"/>
           </TouchableOpacity>
         </View>
