@@ -2248,24 +2248,22 @@ function LateNightCatchUp({ tasks, onConfirmStatus }) {
               <Text style={{ fontSize: 10, color: colors.textMuted }}>{STATUSES[t.status].label}</Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 6 }}>
-              <TouchableOpacity 
-                style={[styles.smallActionBtn, { backgroundColor: colors.green }]} 
-                onPress={() => onConfirmStatus(t.id, 'done')}
-              >
-                <Ionicons name="checkmark" size={14} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.smallActionBtn, { backgroundColor: colors.sky }]} 
-                onPress={() => onConfirmStatus(t.id, 'did_my_best')}
-              >
-                <Ionicons name="star" size={14} color="#fff" />
-              </TouchableOpacity>
-              <TouchableOpacity 
-                style={[styles.smallActionBtn, { backgroundColor: colors.red }]} 
-                onPress={() => onConfirmStatus(t.id, 'missed')}
-              >
-                <Ionicons name="close" size={14} color="#fff" />
-              </TouchableOpacity>
+              {['done', 'did_my_best', 'missed'].map(st => (
+                <TouchableOpacity
+                  key={st}
+                  style={{
+                    paddingHorizontal: 10,
+                    paddingVertical: 5,
+                    borderRadius: 8,
+                    backgroundColor: STATUSES[st]?.color || colors.primary
+                  }}
+                  onPress={() => onConfirmStatus(t.id, st)}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#fff' }}>
+                    {STATUSES[st]?.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
           </View>
         ))}
@@ -2471,7 +2469,7 @@ export default function TasksScreen() {
     // but we can also trigger a manual force-fetch if needed.
     setRefreshing(false);
   };
-  const { economy, spendPoints, addFreeRoll, addXP, removeReward, incrementActiveStreak, incrementMissedStreak, addBankedReward, claimBankedRewards } = useEconomy();
+  const { economy, spendPoints, addFreeRoll, addXP, addReward, removeReward, incrementActiveStreak, incrementMissedStreak, addBankedReward, claimBankedRewards } = useEconomy();
   
   // Audio — use ref to avoid stale-closure unload bug
   const shuffleSoundRef = useRef(null);

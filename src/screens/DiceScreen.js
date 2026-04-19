@@ -757,8 +757,8 @@ export default function DiceScreen() {
         const newBoard = { date: new Date().toDateString(), map: generateDailyPool(pools) };
         setDailyBoard(newBoard);
         // Sync to other tabs
-        if (broadcastChannelRef.current) {
-          broadcastChannelRef.current.postMessage({ type: 'BOARD_SYNC', board: newBoard });
+        if (broadcastRef.current) {
+          broadcastRef.current.postMessage({ type: 'BOARD_SYNC', board: newBoard });
         }
       } else {
         if (Platform.OS === 'web') window.alert('Not Enough Points: You need 200 points to forcefully reshuffle the board.');
