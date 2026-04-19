@@ -214,6 +214,18 @@ export function EconomyProvider({ children }) {
     setEconomy(prev => ({ ...prev, xp: prev.xp + amount }));
   };
 
+  const addFreeRoll = (amount = 1) => {
+    setEconomy(prev => ({ ...prev, freeRolls: prev.freeRolls + amount }));
+  };
+
+  const bulkConsumeFreeRolls = () => {
+    const count = economy.freeRolls;
+    if (count > 0) {
+      setEconomy(prev => ({ ...prev, freeRolls: 0 }));
+    }
+    return count;
+  };
+
   const addBankedReward = (reward) => {
     setEconomy(prev => ({
       ...prev,

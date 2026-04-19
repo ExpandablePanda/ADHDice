@@ -733,7 +733,7 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, on
 // LIST VIEW
 // ═════════════════════════════════════════════════════════════════════════════
 
-function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onViewNote }) {
+function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onViewNote, selectedSubtasks = {}, onToggleSubselect, onBulkSubtaskStatus }) {
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [expanded, setExpanded] = useState(true);
   const [openSubPicker, setOpenSubPicker] = useState(null); // subtask id with picker open
@@ -2456,7 +2456,7 @@ export default function TasksScreen() {
     // but we can also trigger a manual force-fetch if needed.
     setRefreshing(false);
   };
-  const { spendPoints, addFreeRoll, removeReward, incrementActiveStreak, incrementMissedStreak } = useEconomy();
+  const { economy, spendPoints, addFreeRoll, addXP, removeReward, incrementActiveStreak, incrementMissedStreak, addBankedReward, claimBankedRewards } = useEconomy();
   
   // Audio — use ref to avoid stale-closure unload bug
   const shuffleSoundRef = useRef(null);

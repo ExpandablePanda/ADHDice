@@ -15,7 +15,7 @@ import ModalScreen from '../components/ModalScreen';
 import { useFocus } from '../lib/FocusContext';
 import { useEconomy } from '../lib/EconomyContext';
 
-const SCREEN_W = Dimensions.get('window').width;
+const SCREEN_WIDTH = Dimensions.get('window').width;
 
 // ── Default categories ───────────────────────────────────────────────────────
 const DEFAULT_CATEGORIES = [
