@@ -28,6 +28,18 @@ export function getLocalDateKey(date = new Date()) {
 }
 
 /**
+ * Returns the "App Day" key based on dayStartTime (default 6 AM).
+ * If it's 2 AM, it returns yesterday's date key.
+ */
+export function getAppDayKey(dayStartTime = 6) {
+  const now = new Date();
+  if (now.getHours() < dayStartTime) {
+    now.setDate(now.getDate() - 1);
+  }
+  return getLocalDateKey(now);
+}
+
+/**
  * Normalizes common date formats (MM/DD/YYYY or YYYY-MM-DD) to YYYY-MM-DD
  * This ensures string comparisons (like dueDate <= todayKey) work reliably.
  */
@@ -50,9 +62,14 @@ export function isSameDay(d1, d2) {
   return getLocalDateKey(d1) === getLocalDateKey(d2);
 }
 
-export function calculateTaskMissedStreak(history = {}) {
+export function calculateTaskMissedStreak(history = {}, dayStartTime = 6) {
   const today = new Date();
+  // Adjust "today" for the streak calculation if we haven't hit dayStartTime yet
+  if (today.getHours() < dayStartTime) {
+    today.setDate(today.getDate() - 1);
+  }
   today.setHours(0, 0, 0, 0);
+  
   let streak = 0;
   for (let i = 0; i <= 365; i++) {
     const d = new Date(today);
@@ -72,9 +89,14 @@ export function calculateTaskMissedStreak(history = {}) {
   return streak;
 }
 
-export function calculateTaskStreak(history = {}) {
+export function calculateTaskStreak(history = {}, dayStartTime = 6) {
   const today = new Date();
+  // Adjust "today" for the streak calculation if we haven't hit dayStartTime yet
+  if (today.getHours() < dayStartTime) {
+    today.setDate(today.getDate() - 1);
+  }
   today.setHours(0, 0, 0, 0);
+
   let streak = 0;
   for (let i = 0; i <= 365; i++) {
     const d = new Date(today);
@@ -357,8 +379,17 @@ export function TasksProvider({ children }) {
     function processTransitions() {
       const now = new Date();
       const hour = now.getHours();
-      const todayKey = getLocalDateKey(now);
       
+      // Calculate keys based on Day Start logic
+      // If hour < dayStartTime, "today" is actually yesterday calendar-wise.
+      // The "active day" that just ended is "day before yesterday".
+      // But for marking MISSED tasks from the day that just passed:
+      // If we are at 1 AM (and dayStartTime is 6), the "active day" is still today's calendar date - 1.
+      // We only want to close the book on that day when we hit 6 AM.
+      
+      const appTodayKey = getAppDayKey(dayStartTime);
+      
+      // Calendar-wise yesterday
       const yesterday = new Date(now);
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayKey = getLocalDateKey(yesterday);
@@ -369,8 +400,10 @@ export function TasksProvider({ children }) {
         const hist = t.statusHistory || {};
         const lowFreq = t.frequency?.toLowerCase() || '';
         
-        // A. Catch missed tasks from yesterday
-        if (!hist[yesterdayKey]) {
+        // A. Catch missed tasks from yesterday calendar-date
+        // ONLY if we have hit the dayStartTime. 
+        // If it's 1 AM, we shouldn't be auto-marking yesterday as missed yet.
+        if (hour >= dayStartTime && !hist[yesterdayKey]) {
           const wasDaily = lowFreq === 'daily';
           const normalizedDue = normalizeDateKey(t.dueDate);
           const wasWeeklyToday = lowFreq === 'weekly' && (t.weeklyMode === 'fixed_day' || !t.weeklyMode) && t.weeklyDay === yesterday.getDay();
@@ -379,6 +412,7 @@ export function TasksProvider({ children }) {
           if (wasDaily || wasWeeklyToday || wasDueYesterday) {
              const updatedHist = { ...hist, [yesterdayKey]: 'missed' };
              newTask.statusHistory = updatedHist;
+             newTask.streak = calculateTaskStreak(updatedHist, dayStartTime);
              changed = true;
           }
         }
@@ -386,14 +420,14 @@ export function TasksProvider({ children }) {
         // B. 6 AM (or dayStartTime) transition for today
         if (hour >= dayStartTime) {
           if (newTask.status === 'upcoming') {
-            const isDoneToday = hist[todayKey] === 'done' || hist[todayKey] === 'did_my_best';
+            const isDoneToday = hist[appTodayKey] === 'done' || hist[appTodayKey] === 'did_my_best';
             
             // Check if it's due today by schedule
             const isDaily = lowFreq === 'daily';
             const isWeeklyToday = lowFreq === 'weekly' && (t.weeklyMode === 'fixed_day' || !t.weeklyMode) && t.weeklyDay === now.getDay();
             
             const normalizedDue = normalizeDateKey(t.dueDate);
-            const isDueByDate = normalizedDue && normalizedDue <= todayKey;
+            const isDueByDate = normalizedDue && normalizedDue <= appTodayKey;
 
             // Only auto-activate if it matches a schedule OR an explicit due date
             const isDueToday = isDaily || isWeeklyToday || isDueByDate;

@@ -9,7 +9,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { Audio } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { Dimensions } from 'react-native';
-import { useTasks, getLocalDateKey, calculateTaskStreak, calculateTaskMissedStreak, STATUSES, STATUS_ORDER } from '../lib/TasksContext';
+import { useTasks, getLocalDateKey, getAppDayKey, calculateTaskStreak, calculateTaskMissedStreak, STATUSES, STATUS_ORDER } from '../lib/TasksContext';
 import { useEconomy } from '../lib/EconomyContext';
 import { useTheme } from '../lib/ThemeContext';
 import { useSettings } from '../lib/SettingsContext';
@@ -738,6 +738,7 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
   const [expanded, setExpanded] = useState(true);
   const [openSubPicker, setOpenSubPicker] = useState(null); // subtask id with picker open
   const { notes } = useNotes();
+  const { dayStartTime } = useSettings();
 
   const linkedNotesCount = (notes || []).filter(n => n.taskId === task.id).length;
 
@@ -809,7 +810,7 @@ function TaskRow({ task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onV
             {(task.dueDate || task.dueTime) ? <View style={styles.metaChip}><Ionicons name="calendar-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{task.dueDate} {task.dueTime}</Text></View> : null}
             {total > 0 && <View style={styles.metaChip}><Ionicons name="checkbox-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{done}/{total}</Text></View>}
             {(task.streak && task.streak > 0) ? <View style={[styles.metaChip, { backgroundColor: '#fee2e2' }]}><Ionicons name="flame" size={10} color="#ef4444" /><Text style={[styles.metaChipText, { color: '#ef4444' }]}>{task.streak}</Text></View> : null}
-            {(() => { const ms = calculateTaskMissedStreak(task.statusHistory); return ms > 0 ? <View style={[styles.metaChip, { backgroundColor: '#1f2937' }]}><Text style={[styles.metaChipText, { color: '#f9fafb' }]}>💀 {ms}</Text></View> : null; })()}
+            {(() => { const ms = calculateTaskMissedStreak(task.statusHistory, dayStartTime); return ms > 0 ? <View style={[styles.metaChip, { backgroundColor: '#1f2937' }]}><Text style={[styles.metaChipText, { color: '#f9fafb' }]}>💀 {ms}</Text></View> : null; })()}
             {linkedNotesCount > 0 && (
               <TouchableOpacity 
                 style={[styles.metaChip, { backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 0.5 }]}
@@ -1070,7 +1071,7 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory, isFlipped, onFlipC
             <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '800' }]}>{task.streak}</Text>
           </View>
         ) : null}
-        {(() => { const ms = calculateTaskMissedStreak(task.statusHistory); return ms > 0 ? <View style={[styles.cardChip, { backgroundColor: 'rgba(0,0,0,0.4)' }]}><Text style={[styles.cardChipText, { color: '#f9fafb', fontWeight: '800' }]}>💀 {ms}</Text></View> : null; })()}
+        {(() => { const ms = calculateTaskMissedStreak(task.statusHistory, dayStartTime); return ms > 0 ? <View style={[styles.cardChip, { backgroundColor: 'rgba(0,0,0,0.4)' }]}><Text style={[styles.cardChipText, { color: '#f9fafb', fontWeight: '800' }]}>💀 {ms}</Text></View> : null; })()}
         {task.tags.slice(0, 1).map(tag => (
           <View key={tag} style={[styles.cardChip, { backgroundColor: 'rgba(255,255,255,0.25)' }]}>
             <Text style={[styles.cardChipText, { color: '#ffffff', fontWeight: '600' }]}>{tag}</Text>
@@ -2162,12 +2163,116 @@ function ShuffleModal({ task, onClose, onShuffle, onOpen, onCycleStatus }) {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// FOCUS YOUR DAY (NEW)
+// LATE NIGHT CATCH-UP (NEW)
 // ═════════════════════════════════════════════════════════════════════════════
 
-function FocusYourDay({ tasks, onComplete }) {
+function LateNightCatchUp({ tasks, onConfirmStatus }) {
   const { colors } = useTheme();
-  const [step, setStep] = useState(0); // 0 (start), 1 (must do), 2 (procrastinating), 3 (bonus), 4 (final)
+  // Filter for tasks that are 'pending' or 'active' (In Progress)
+  const unfinished = tasks.filter(t => t.status === 'pending' || t.status === 'active');
+  
+  if (unfinished.length === 0) return null;
+
+  return (
+    <View style={[styles.fydBox, { borderColor: colors.amber, borderWidth: 1, backgroundColor: colors.background }]}>
+      <View style={styles.fydHeader}>
+        <Text style={[styles.fydStepText, { color: colors.amber }]}>Late Night Review 🌙</Text>
+      </View>
+      <Text style={{ color: colors.textSecondary, fontSize: 13, marginBottom: 12 }}>
+        It's after midnight! Want to close out yesterday's tasks before the 6 AM rollover?
+      </Text>
+      
+      <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
+        {unfinished.map(t => (
+          <View key={t.id} style={[styles.fydItem, { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }]}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.fydItemText, { fontSize: 14 }]}>{t.title}</Text>
+              <Text style={{ fontSize: 10, color: colors.textMuted }}>{STATUSES[t.status].label}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 6 }}>
+              <TouchableOpacity 
+                style={[styles.smallActionBtn, { backgroundColor: colors.green }]} 
+                onPress={() => onConfirmStatus(t.id, 'done')}
+              >
+                <Ionicons name="checkmark" size={14} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.smallActionBtn, { backgroundColor: colors.sky }]} 
+                onPress={() => onConfirmStatus(t.id, 'did_my_best')}
+              >
+                <Ionicons name="star" size={14} color="#fff" />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.smallActionBtn, { backgroundColor: colors.red }]} 
+                onPress={() => onConfirmStatus(t.id, 'missed')}
+              >
+                <Ionicons name="close" size={14} color="#fff" />
+              </TouchableOpacity>
+            </View>
+          </View>
+        ))}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MORNING START MODAL (NEW)
+// ═════════════════════════════════════════════════════════════════════════════
+
+function MorningStartModal({ onClaimReward, onStartPlanning, onClose }) {
+  const { colors } = useTheme();
+  const [claimed, setClaimed] = useState(false);
+
+  return (
+    <Modal visible transparent animationType="fade">
+      <View style={styles.morningOverlay}>
+        <Animated.View style={styles.morningContent}>
+          <Ionicons name="sunny" size={60} color="#fbbf24" style={{ marginBottom: 16 }} />
+          <Text style={styles.morningTitle}>Good Morning! 🌅</Text>
+          <Text style={styles.morningSub}>Ready to build some serious momentum today?</Text>
+          
+          {!claimed ? (
+            <TouchableOpacity 
+              style={styles.morningRewardBtn} 
+              onPress={() => { setClaimed(true); onClaimReward(); }}
+            >
+              <Ionicons name="dice" size={24} color="#fff" />
+              <View>
+                <Text style={styles.morningRewardText}>Claim Daily Bonus</Text>
+                <Text style={styles.morningRewardSub}>+1 Free Dice Roll</Text>
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <View style={[styles.morningRewardBtn, { backgroundColor: '#10b981' }]}>
+              <Ionicons name="checkmark-circle" size={24} color="#fff" />
+              <Text style={styles.morningRewardText}>Reward Claimed!</Text>
+            </View>
+          )}
+
+          <View style={{ width: '100%', gap: 12, marginTop: 12 }}>
+            <TouchableOpacity style={styles.morningPlanBtn} onPress={onStartPlanning}>
+              <Text style={styles.morningPlanText}>Plan My Day</Text>
+              <Ionicons name="chevron-forward" size={18} color="#fff" />
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.morningSkipBtn} onPress={onClose}>
+              <Text style={styles.morningSkipText}>I'll plan later</Text>
+            </TouchableOpacity>
+          </View>
+        </Animated.View>
+      </View>
+    </Modal>
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// FOCUS YOUR DAY
+// ═════════════════════════════════════════════════════════════════════════════
+
+function FocusYourDay({ tasks, onComplete, forceOpen = false }) {
+  const { colors } = useTheme();
+  const [step, setStep] = useState(forceOpen ? 1 : 0); // 0 (start), 1 (must do), 2 (procrastinating), 3 (bonus), 4 (final)
   const [selections, setSelections] = useState({ 1: [], 2: [], 3: [] });
   const [search, setSearch] = useState('');
   
@@ -2175,11 +2280,8 @@ function FocusYourDay({ tasks, onComplete }) {
   const [lastReset, setLastReset] = useState(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('@ADHD_last_reset').then(val => {
-      if (val) setLastReset(val);
-      else setLastReset(today);
-    });
-  }, []);
+    if (forceOpen) setStep(1);
+  }, [forceOpen]);
 
   function handleFullReset() {
     onComplete({ 1: [], 2: [], 3: [] }, true); // true = force clear priorities
@@ -2374,6 +2476,36 @@ export default function TasksScreen() {
   const [rewardQueue, setRewardQueue] = useState([]); // queue of {task, intent} for sequential rolls
   const [bulkRollCount, setBulkRollCount] = useState(0);
   
+  const [showMorningStart, setShowMorningStart] = useState(false);
+  const [forceFocusOpen, setForceFocusOpen] = useState(false);
+
+  // Check for Morning Start UI
+  useEffect(() => {
+    async function checkMorning() {
+      const now = new Date();
+      // Only show between dayStartTime (e.g. 6 AM) and 11 AM
+      if (now.getHours() >= dayStartTime && now.getHours() < 11) {
+        const todayKey = getLocalDateKey(now);
+        const lastStart = await AsyncStorage.getItem('@ADHD_last_morning_start');
+        if (lastStart !== todayKey) {
+          setShowMorningStart(true);
+        }
+      }
+    }
+    checkMorning();
+  }, [dayStartTime]);
+
+  const handleMorningClose = async () => {
+    const todayKey = getLocalDateKey();
+    await AsyncStorage.setItem('@ADHD_last_morning_start', todayKey);
+    setShowMorningStart(false);
+  };
+
+  const handleMorningPlan = () => {
+    handleMorningClose();
+    setForceFocusOpen(true);
+  };
+  
   // Advanced Filtering
   const [filterEnergy, setFilterEnergy] = useState([]);
   const [filterTags, setFilterTags] = useState([]);
@@ -2397,7 +2529,7 @@ export default function TasksScreen() {
       // 2. Correct any mismatched streaks
       let changed = idsChanged;
       const fixed = uniqueTasks.map(t => {
-        const correct = calculateTaskStreak(t.statusHistory || {});
+        const correct = calculateTaskStreak(t.statusHistory || {}, dayStartTime);
         if (t.streak !== correct) {
           changed = true;
           return { ...t, streak: correct };
@@ -2407,7 +2539,7 @@ export default function TasksScreen() {
 
       if (changed) setTasks(fixed);
     }
-  }, []); // Run once on mount
+  }, [dayStartTime]); // Run when tasks or dayStartTime change
 
   const handleScroll = (event) => {
     const y = event.nativeEvent.contentOffset.y;
@@ -2415,7 +2547,7 @@ export default function TasksScreen() {
   };
 
   // Stats
-  const todayStr = getLocalDateKey();
+  const todayStr = getAppDayKey(dayStartTime);
   const stats = {
     total: tasks.length,
     today: tasks.filter(t => {
@@ -2472,7 +2604,7 @@ export default function TasksScreen() {
 
   if (filterMissedStreak) {
     filtered = filtered
-      .map(t => ({ t, ms: calculateTaskMissedStreak(t.statusHistory) }))
+      .map(t => ({ t, ms: calculateTaskMissedStreak(t.statusHistory, dayStartTime) }))
       .filter(({ ms }) => ms >= 2)
       .sort((a, b) => b.ms - a.ms)
       .map(({ t }) => t);
@@ -2544,19 +2676,26 @@ export default function TasksScreen() {
     if (!targetStatus) targetStatus = STATUSES[subject.status || 'pending'].next;
     
     if (targetStatus === 'done' || targetStatus === 'did_my_best') {
-      // Only stamp the parent's statusHistory when completing the main task itself,
-      // not when a subtask is completed — subtasks are independent of the parent status
+      // Only stamp the parent's statusHistory when completing the main task itself.
       if (!subtaskId) {
-        const todayKey = getLocalDateKey();
+        // Use getAppDayKey to ensure 1 AM completions go to "yesterday"
+        const appDay = getAppDayKey(dayStartTime);
         setTasks(prev => prev.map(t => {
           if (t.id === taskId) {
-            return { ...t, statusHistory: { ...(t.statusHistory || {}), [todayKey]: targetStatus } };
+            return { ...t, statusHistory: { ...(t.statusHistory || {}), [appDay]: targetStatus } };
           }
           return t;
         }));
       }
       setShuffleTask(null);
-      setCompletingTask({ ...subject, intent: targetStatus, parentTaskId: subtaskId ? taskId : null });
+      // Pass the dateKey to the completion handler for reward banking
+      setCompletingTask({ 
+        ...subject, 
+        intent: targetStatus, 
+        parentTaskId: subtaskId ? taskId : null,
+        _dateKey: getAppDayKey(dayStartTime),
+        _backdatedCompletedAt: new Date().getHours() < dayStartTime ? new Date().toISOString() : null
+      });
     } else if (targetStatus === 'missed') {
       const isSub = !!subtaskId;
       Alert.alert(
@@ -2567,18 +2706,19 @@ export default function TasksScreen() {
         [
           { text: "Cancel", style: "cancel" },
           { text: "Confirm Missed", style: "destructive", onPress: () => {
+              const appDay = getAppDayKey(dayStartTime);
               if (isSub) {
                 setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, 'missed') } : t));
                 logTaskEvent(subject, 'missed');
               } else {
                 incrementMissedStreak();
                 logTaskEvent(task, 'missed');
-                const updatedHistory = { ...(task.statusHistory || {}), [getLocalDateKey()]: 'missed' };
-                const nextDue = calcNextDueDate(task);
+                const updatedHistory = { ...(task.statusHistory || {}), [appDay]: 'missed' };
+                const nextDue = calcNextDueDate(task, dayStartTime);
                 setTasks(prev => prev.map(t => t.id === taskId ? {
                   ...t,
                   status: 'missed',
-                  streak: calculateTaskStreak(updatedHistory),
+                  streak: calculateTaskStreak(updatedHistory, dayStartTime),
                   statusHistory: updatedHistory,
                   ...(nextDue ? { dueDate: nextDue } : {}),
                 } : t));
@@ -2587,10 +2727,11 @@ export default function TasksScreen() {
         ]
       );
     } else {
+      const appDay = getAppDayKey(dayStartTime);
       if ((task.status === 'done' || task.status === 'did_my_best') && task.gainedReward) {
         removeReward(task.gainedReward.points, task.gainedReward.xp);
-        const updatedHistory = { ...(task.statusHistory || {}), [getLocalDateKey()]: targetStatus };
-        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, gainedReward: null, completedAt: null, streak: calculateTaskStreak(updatedHistory), statusHistory: updatedHistory } : t));
+        const updatedHistory = { ...(task.statusHistory || {}), [appDay]: targetStatus };
+        setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, gainedReward: null, completedAt: null, streak: calculateTaskStreak(updatedHistory, dayStartTime), statusHistory: updatedHistory } : t));
         logTaskEvent(task, targetStatus);
       } else {
         const existing = tasks.find(t => t.id === taskId);
@@ -2603,8 +2744,8 @@ export default function TasksScreen() {
           setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, targetStatus) } : t));
           logTaskEvent(subject, targetStatus);
         } else {
-          const updatedHistory = { ...(existing.statusHistory || {}), [getLocalDateKey()]: targetStatus };
-          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, streak: calculateTaskStreak(updatedHistory), statusHistory: updatedHistory } : t));
+          const updatedHistory = { ...(existing.statusHistory || {}), [appDay]: targetStatus };
+          setTasks(prev => prev.map(t => t.id === taskId ? { ...t, status: targetStatus, streak: calculateTaskStreak(updatedHistory, dayStartTime), statusHistory: updatedHistory } : t));
           logTaskEvent(existing, targetStatus);
         }
       }
@@ -2639,7 +2780,7 @@ export default function TasksScreen() {
       return;
     }
 
-    const today = getLocalDateKey();
+    const today = getAppDayKey(dayStartTime);
 
     setTasks(prev => prev.map(t => {
       // Use loose equality (==) or cast to String to prevent numeric ID mismatches
@@ -2647,7 +2788,7 @@ export default function TasksScreen() {
         let nextData = {};
         if (t.frequency) {
           // Safety: ensure next data is calculated correctly for recurring rollovers
-          const formatted = calcNextDueDate(t);
+          const formatted = calcNextDueDate(t, dayStartTime);
           nextData.dueDate = formatted;
           nextData.status = 'upcoming';
           nextData.gainedReward = null;
@@ -2661,9 +2802,8 @@ export default function TasksScreen() {
         // Use backdated timestamp if provided (e.g. midnight confirm "done")
         const finalCompletedAt = nextData.status ? null : (completingTask._backdatedCompletedAt || new Date().toISOString());
         // Use the backdated date key if available
-        const historyKey = completingTask._backdatedCompletedAt
-          ? getLocalDateKey(new Date(completingTask._backdatedCompletedAt))
-          : today;
+        const historyKey = completingTask._dateKey || today;
+        
         const updatedHistory = { ...(t.statusHistory || {}), [historyKey]: intent };
         const updated = {
           ...t,
@@ -2672,7 +2812,7 @@ export default function TasksScreen() {
           ...nextData,
           status: finalStatus,
           statusHistory: updatedHistory,
-          streak: calculateTaskStreak(updatedHistory),
+          streak: calculateTaskStreak(updatedHistory, dayStartTime),
         };
         logTaskEvent(updated, intent);
         return updated;
@@ -2779,7 +2919,41 @@ export default function TasksScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }} onScroll={handleScroll} scrollEventThrottle={16}>
+
+      {showMorningStart && (
+        <MorningStartModal 
+          onClaimReward={() => { addFreeRoll(1); }}
+          onStartPlanning={handleMorningPlan}
+          onClose={handleMorningClose}
+        />
+      )}
+
+      {/* ── Late Night / Morning Hooks ── */}
+      <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
+        {(() => {
+          const hour = new Date().getHours();
+          if (hour >= 0 && hour < dayStartTime) {
+            return <LateNightCatchUp tasks={tasks} onConfirmStatus={confirmStatus} />;
+          }
+          return null;
+        })()}
+
+        <FocusYourDay 
+          tasks={tasks} 
+          forceOpen={forceFocusOpen}
+          onComplete={(sels, forceClear = false) => {
+            setForceFocusOpen(false);
+            const todayKey = getLocalDateKey();
+            AsyncStorage.setItem('@ADHD_last_reset', todayKey);
+            const allIds = [...sels[1], ...sels[2], ...sels[3]];
+            setTasks(prev => prev.map(t => {
+              if (forceClear) return { ...t, isPriority: false };
+              return { ...t, isPriority: allIds.includes(t.id) };
+            }));
+          }}
+        />
+      </View>
 
       {/* ── Main header ── */}
       <View style={styles.header}>
@@ -2928,7 +3102,7 @@ export default function TasksScreen() {
             );
           })}
           {(() => {
-            const msCount = tasks.filter(t => calculateTaskMissedStreak(t.statusHistory) >= 2).length;
+            const msCount = tasks.filter(t => calculateTaskMissedStreak(t.statusHistory, dayStartTime) >= 2).length;
             if (msCount === 0) return null;
             return (
               <TouchableOpacity
@@ -3231,7 +3405,7 @@ export default function TasksScreen() {
                 let next = { 
                   ...t, 
                   statusHistory: h,
-                  streak: calculateTaskStreak(h)
+                  streak: calculateTaskStreak(h, dayStartTime)
                 };
 
                 if (isToday) {
@@ -3265,7 +3439,7 @@ export default function TasksScreen() {
                 return { 
                   ...t, 
                   statusHistory: newHistory,
-                  streak: calculateTaskStreak(newHistory),
+                  streak: calculateTaskStreak(newHistory, dayStartTime),
                   ...(todayUpdate !== undefined ? { status: todayUpdate || 'pending' } : {})
                 };
               }));
@@ -3525,6 +3699,96 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#ddd6fe',
+  },
+  
+  // Late Night Catch-up
+  smallActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  // Morning Start Modal
+  morningOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  morningContent: {
+    backgroundColor: '#fff',
+    borderRadius: 32,
+    padding: 32,
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  morningTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: '#111827',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  morningSub: {
+    fontSize: 15,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  morningRewardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6366f1',
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
+    gap: 12,
+    width: '100%',
+    marginBottom: 16,
+  },
+  morningRewardText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  morningRewardSub: {
+    color: 'rgba(255,255,255,0.8)',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  morningPlanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#8b5cf6',
+    borderRadius: 16,
+    paddingVertical: 14,
+    width: '100%',
+    gap: 8,
+  },
+  morningPlanText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  morningSkipBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+  },
+  morningSkipText: {
+    color: '#9ca3af',
+    fontSize: 14,
+    fontWeight: '600',
   },
 });
 
