@@ -1121,6 +1121,7 @@ export default function FocusScreen() {
     startTimer, stopTimer, resetTimer 
   } = useFocus();
   const { addReward } = useEconomy();
+  const galleryScrolledRef = useRef(false);
   
   const [timerSeconds, setTimerSeconds] = useState(0); // For display only
   const [pendingLog, setPendingLog] = useState(null); // { category, seconds }
@@ -1460,10 +1461,10 @@ export default function FocusScreen() {
             inverted // Show most recent first (right to left) or just start at end?
             // Actually, natural order (left to right) is better but start at the end (Today).
             ref={ref => {
-              if (ref && !this._galleryScrolled) {
+              if (ref && !galleryScrolledRef.current) {
                 // Initialize scroll to end (Today)
                 setTimeout(() => ref.scrollToEnd({ animated: false }), 100);
-                this._galleryScrolled = true;
+                galleryScrolledRef.current = true;
               }
             }}
           >
