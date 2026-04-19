@@ -3036,7 +3036,6 @@ export default function TasksScreen() {
         />
       )}
 
-      {/* ── Late Night / Morning Hooks ── */}
       <View style={{ paddingHorizontal: 16, marginTop: 12 }}>
         {(() => {
           const hour = new Date().getHours();
@@ -3045,21 +3044,6 @@ export default function TasksScreen() {
           }
           return null;
         })()}
-
-        <FocusYourDay 
-          tasks={tasks} 
-          forceOpen={forceFocusOpen}
-          onComplete={(sels, forceClear = false) => {
-            setForceFocusOpen(false);
-            const todayKey = getLocalDateKey();
-            AsyncStorage.setItem('@ADHD_last_reset', todayKey);
-            const allIds = [...sels[1], ...sels[2], ...sels[3]];
-            setTasks(prev => prev.map(t => {
-              if (forceClear) return { ...t, isPriority: false };
-              return { ...t, isPriority: allIds.includes(t.id) };
-            }));
-          }}
-        />
       </View>
 
       {/* ── Main header ── */}
@@ -3092,16 +3076,22 @@ export default function TasksScreen() {
         </View>
       </View>
 
-      {/* ── Top Stats Banner ── */}
       <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
-        <FocusYourDay tasks={tasks} onComplete={(sels, forceClear = false) => {
-          const allIds = [...sels[1], ...sels[2], ...sels[3]];
-          setTasks(prev => prev.map(t => {
-            if (forceClear) return { ...t, isPriority: false };
-            // Always replace old priorities with the new selection
-            return { ...t, isPriority: allIds.includes(t.id) };
-          }));
-        }} />
+        <FocusYourDay 
+          tasks={tasks} 
+          forceOpen={forceFocusOpen}
+          onComplete={(sels, forceClear = false) => {
+            setForceFocusOpen(false);
+            const todayKey = getLocalDateKey();
+            AsyncStorage.setItem('@ADHD_last_reset', todayKey);
+            const allIds = [...sels[1], ...sels[2], ...sels[3]];
+            setTasks(prev => prev.map(t => {
+              if (forceClear) return { ...t, isPriority: false };
+              // Always replace old priorities with the new selection
+              return { ...t, isPriority: allIds.includes(t.id) };
+            }));
+          }} 
+        />
         
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, marginTop: 12 }}>
           <View style={[styles.statBox, { backgroundColor: '#f9fafb', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
