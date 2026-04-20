@@ -969,6 +969,7 @@ function TaskCard({ task, onConfirmStatus, onOpen, onHistory, isFlipped, onFlipC
   const [stagedStatus, setStagedStatus] = useState(null);
   const flipAnim = useRef(new Animated.Value(isFlipped ? 1 : 0)).current;
   const { notes } = useNotes();
+  const { dayStartTime } = useSettings();
   const linkedNotes = (notes || []).filter(n => String(n.taskId) === String(task.id));
   const linkedNotesCount = linkedNotes.length;
 
