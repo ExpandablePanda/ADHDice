@@ -184,7 +184,7 @@ function getStepPresets(title = '') {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-function groupByStatus(tasks) {
+function groupByStatus(tasks, overstimulated = false) {
   const todayKey = getLocalDateKey();
   const activeStatuses = ['first_step', 'active', 'pending', 'missed', 'upcoming'];
   
@@ -197,7 +197,7 @@ function groupByStatus(tasks) {
         // Recurring tasks should not be hidden from active sections just because they were done today
         // (because they move to 'upcoming' and we want to see them there)
         const shouldHide = isDoneToday && !t.frequency;
-        return t.status === s && !t.isPriority && !shouldHide;
+        return t.status === s && !t.isPriority && !t.isUrgent && !shouldHide;
       });
       return { 
         title: STATUSES[s].label, 
@@ -208,29 +208,38 @@ function groupByStatus(tasks) {
     })
     .filter(g => g.fullCount > 0);
 
-  // Group all currently 'done' tasks OR any task finished today
-  const doneData = tasks.filter(t => {
-    const h = t.statusHistory?.[todayKey];
-    const isDoneToday = h === 'done' || h === 'did_my_best';
-    // Recurring tasks that rolled over to 'upcoming' should NOT be in the 'Done' section
-    if (t.frequency && t.status === 'upcoming') return false;
-    return t.status === 'done' || t.status === 'did_my_best' || isDoneToday;
-  });
-
-  if (doneData.length > 0) {
-    const sortedDone = [...doneData].sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
-    sections.push({
-      title: 'Done',
-      status: 'done',
-      data: sortedDone,
-      fullCount: sortedDone.length
+  if (overstimulated) {
+    // In overstimulated mode, we only show Priority and Urgent
+    // So we return an empty array for normal status groups
+    sections.length = 0; 
+  } else {
+    // Group all currently 'done' tasks OR any task finished today
+    const doneData = tasks.filter(t => {
+      const h = t.statusHistory?.[todayKey];
+      const isDoneToday = h === 'done' || h === 'did_my_best';
+      // Recurring tasks that rolled over to 'upcoming' should NOT be in the 'Done' section
+      if (t.frequency && t.status === 'upcoming') return false;
+      return t.status === 'done' || t.status === 'did_my_best' || isDoneToday;
     });
+
+    if (doneData.length > 0) {
+      const sortedDone = [...doneData].sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+      sections.push({
+        title: 'Done',
+        status: 'done',
+        data: sortedDone,
+        fullCount: sortedDone.length
+      });
+    }
   }
 
   const priorityData = tasks.filter(t => {
     const h = t.statusHistory?.[todayKey];
     const isDoneToday = h === 'done' || h === 'did_my_best';
-    return t.isPriority && t.status !== 'done' && t.status !== 'did_my_best' && !isDoneToday;
+    const isDone = t.status === 'done' || t.status === 'did_my_best' || isDoneToday;
+    if (isDone) return false;
+    if (overstimulated && t.status === 'upcoming') return false;
+    return t.isPriority && !t.isUrgent;
   });
   if (priorityData.length > 0) {
     sections.unshift({
@@ -238,6 +247,23 @@ function groupByStatus(tasks) {
       status: 'first_step',
       data: priorityData,
       fullCount: priorityData.length
+    });
+  }
+
+  const urgentData = tasks.filter(t => {
+    const h = t.statusHistory?.[todayKey];
+    const isDoneToday = h === 'done' || h === 'did_my_best';
+    const isDone = t.status === 'done' || t.status === 'did_my_best' || isDoneToday;
+    if (isDone) return false;
+    if (overstimulated && t.status === 'upcoming') return false;
+    return t.isUrgent;
+  });
+  if (urgentData.length > 0) {
+    sections.unshift({
+      title: '⏰ Urgent Tasks',
+      status: 'upcoming', 
+      data: urgentData,
+      fullCount: urgentData.length
     });
   }
 
@@ -687,7 +713,7 @@ function TaskHistoryModal({ task, taskHistory = [], onClose, onUpdateHistory, on
 function TaskRow({ 
   task, onConfirmStatus, onOpen, onHistory, onDeprioritize, onViewNote, 
   selectedSubtasks = {}, onToggleSubselect, onBulkSubtaskStatus,
-  selectionMode, isSelected, onToggleSelection, onStartSelectionMode
+  selectionMode, isSelected, onToggleSelection, onStartSelectionMode, overstimulated = false
 }) {
   const [showStatusPicker, setShowStatusPicker] = useState(false);
   const [expanded, setExpanded] = useState(true);
@@ -756,61 +782,63 @@ function TaskRow({
               </TouchableOpacity>
             )}
           </View>
-          <View style={styles.metaRow}>
-            {task.isPriority && onDeprioritize && (
-              <TouchableOpacity
-                style={[styles.metaChip, { backgroundColor: '#ede9fe', borderColor: '#8b5cf6', borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 3 }]}
-                onPress={(e) => { e.stopPropagation(); onDeprioritize(task.id); }}
-              >
-                <Ionicons name="flame" size={10} color="#8b5cf6" />
-                <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>Focus</Text>
-                <Ionicons name="close" size={10} color="#8b5cf6" />
-              </TouchableOpacity>
-            )}
-            <TouchableOpacity
-              style={[styles.metaChip, { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc', borderWidth: 1 }]}
-              onPress={(e) => { e.stopPropagation(); onHistory(task); }}
-            >
-              <Ionicons name="time-outline" size={10} color="#0284c7" />
-              <Text style={[styles.metaChipText, { color: '#0284c7', fontWeight: '700' }]}>History</Text>
-            </TouchableOpacity>
-            {task.status !== 'done' && task.status !== 'first_step' && (
-              <TouchableOpacity
-                style={[styles.metaChip, { backgroundColor: '#f5f3ff', borderColor: '#8b5cf6', borderWidth: 1 }]}
-                onPress={(e) => { e.stopPropagation(); onOpen({ ...task, is1stStepTrigger: true }); }}
-              >
-                <Ionicons name="rocket-outline" size={10} color="#8b5cf6" />
-                <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>1st Step</Text>
-              </TouchableOpacity>
-            )}
-            {energy && <View style={[styles.metaChip, { backgroundColor: energy.bg }]}><Text style={[styles.metaChipText, { color: energy.color }]}>{energy.label}</Text></View>}
-            {task.estimatedMinutes ? <View style={styles.metaChip}><Ionicons name="hourglass-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>~{task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}</Text></View> : null}
-            {(task.dueDate || task.dueTime) ? <View style={styles.metaChip}><Ionicons name="calendar-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{task.dueDate} {task.dueTime}</Text></View> : null}
-            {total > 0 && <View style={styles.metaChip}><Ionicons name="checkbox-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{done}/{total}</Text></View>}
-            {(task.streak && task.streak > 0) ? <View style={[styles.metaChip, { backgroundColor: '#fee2e2' }]}><Ionicons name="flame" size={10} color="#ef4444" /><Text style={[styles.metaChipText, { color: '#ef4444' }]}>{task.streak}</Text></View> : null}
-            {(() => { const ms = calculateTaskMissedStreak(task.statusHistory, dayStartTime); return ms > 0 ? <View style={[styles.metaChip, { backgroundColor: '#1f2937' }]}><Text style={[styles.metaChipText, { color: '#f9fafb' }]}>💀 {ms}</Text></View> : null; })()}
-            {linkedNotesCount > 0 && (
-              <TouchableOpacity 
-                style={[styles.metaChip, { backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 0.5 }]}
-                onPress={(e) => {
-                  e.stopPropagation();
-                  const linkedNotes = notes.filter(n => String(n.taskId) === String(task.id));
-                  if (linkedNotes.length === 1) {
-                    onViewNote(linkedNotes[0]);
-                  } else {
-                    onOpen(task); // Go to edit window to choose from list
-                  }
-                }}
-              >
-                <Ionicons name="document-text-outline" size={10} color="#d97706" />
-                <Text style={[styles.metaChipText, { color: '#d97706' }]}>Notes ({linkedNotesCount})</Text>
-                <TouchableOpacity onPress={(e) => { e.stopPropagation(); const ln = notes.filter(n => String(n.taskId) === String(task.id)); onViewNote(ln[0], true); }} style={{ marginLeft: 4 }}>
-                  <Ionicons name="pencil" size={10} color="#d97706" />
+          {!overstimulated && (
+            <View style={styles.metaRow}>
+              {task.isPriority && onDeprioritize && (
+                <TouchableOpacity
+                  style={[styles.metaChip, { backgroundColor: '#ede9fe', borderColor: '#8b5cf6', borderWidth: 1, flexDirection: 'row', alignItems: 'center', gap: 3 }]}
+                  onPress={(e) => { e.stopPropagation(); onDeprioritize(task.id); }}
+                >
+                  <Ionicons name="flame" size={10} color="#8b5cf6" />
+                  <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>Focus</Text>
+                  <Ionicons name="close" size={10} color="#8b5cf6" />
                 </TouchableOpacity>
+              )}
+              <TouchableOpacity
+                style={[styles.metaChip, { backgroundColor: '#e0f2fe', borderColor: '#7dd3fc', borderWidth: 1 }]}
+                onPress={(e) => { e.stopPropagation(); onHistory(task); }}
+              >
+                <Ionicons name="time-outline" size={10} color="#0284c7" />
+                <Text style={[styles.metaChipText, { color: '#0284c7', fontWeight: '700' }]}>History</Text>
               </TouchableOpacity>
-            )}
-            {(task.tags || []).map((tag, i) => <View key={i} style={[styles.metaChip, { backgroundColor: '#ede9fe' }]}><Text style={[styles.metaChipText, { color: '#6366f1' }]}>{tag}</Text></View>)}
-          </View>
+              {task.status !== 'done' && task.status !== 'first_step' && (
+                <TouchableOpacity
+                  style={[styles.metaChip, { backgroundColor: '#f5f3ff', borderColor: '#8b5cf6', borderWidth: 1 }]}
+                  onPress={(e) => { e.stopPropagation(); onOpen({ ...task, is1stStepTrigger: true }); }}
+                >
+                  <Ionicons name="rocket-outline" size={10} color="#8b5cf6" />
+                  <Text style={[styles.metaChipText, { color: '#8b5cf6', fontWeight: '700' }]}>1st Step</Text>
+                </TouchableOpacity>
+              )}
+              {energy && <View style={[styles.metaChip, { backgroundColor: energy.bg }]}><Text style={[styles.metaChipText, { color: energy.color }]}>{energy.label}</Text></View>}
+              {task.estimatedMinutes ? <View style={styles.metaChip}><Ionicons name="hourglass-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>~{task.estimatedMinutes >= 60 ? `${Math.floor(task.estimatedMinutes/60)}h${task.estimatedMinutes%60 ? ` ${task.estimatedMinutes%60}m` : ''}` : `${task.estimatedMinutes}m`}</Text></View> : null}
+              {(task.dueDate || task.dueTime) ? <View style={styles.metaChip}><Ionicons name="calendar-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{task.dueDate} {task.dueTime}</Text></View> : null}
+              {total > 0 && <View style={styles.metaChip}><Ionicons name="checkbox-outline" size={10} color="#6b7280" /><Text style={styles.metaChipText}>{done}/{total}</Text></View>}
+              {(task.streak && task.streak > 0) ? <View style={[styles.metaChip, { backgroundColor: '#fee2e2' }]}><Ionicons name="flame" size={10} color="#ef4444" /><Text style={[styles.metaChipText, { color: '#ef4444' }]}>{task.streak}</Text></View> : null}
+              {(() => { const ms = calculateTaskMissedStreak(task.statusHistory, dayStartTime); return ms > 0 ? <View style={[styles.metaChip, { backgroundColor: '#1f2937' }]}><Text style={[styles.metaChipText, { color: '#f9fafb' }]}>💀 {ms}</Text></View> : null; })()}
+              {linkedNotesCount > 0 && (
+                <TouchableOpacity 
+                  style={[styles.metaChip, { backgroundColor: '#fef3c7', borderColor: '#f59e0b', borderWidth: 0.5 }]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    const linkedNotes = notes.filter(n => String(n.taskId) === String(task.id));
+                    if (linkedNotes.length === 1) {
+                      onViewNote(linkedNotes[0]);
+                    } else {
+                      onOpen(task); // Go to edit window to choose from list
+                    }
+                  }}
+                >
+                  <Ionicons name="document-text-outline" size={10} color="#d97706" />
+                  <Text style={[styles.metaChipText, { color: '#d97706' }]}>Notes ({linkedNotesCount})</Text>
+                  <TouchableOpacity onPress={(e) => { e.stopPropagation(); const ln = notes.filter(n => String(n.taskId) === String(task.id)); onViewNote(ln[0], true); }} style={{ marginLeft: 4 }}>
+                    <Ionicons name="pencil" size={10} color="#d97706" />
+                  </TouchableOpacity>
+                </TouchableOpacity>
+              )}
+              {(task.tags || []).map((tag, i) => <View key={i} style={[styles.metaChip, { backgroundColor: '#ede9fe' }]}><Text style={[styles.metaChipText, { color: '#6366f1' }]}>{tag}</Text></View>)}
+            </View>
+          )}
         </View>
         <Ionicons name="chevron-forward" size={16} color="#d1d5db" />
       </TouchableOpacity>
@@ -860,7 +888,10 @@ function TaskRow({
                   </View>
                 )}
                 {(function renderSubs(subs, depth) {
-                  return subs.map(s => {
+                  const filteredSubs = overstimulated 
+                    ? subs.filter(s => s.status !== 'done' && s.status !== 'did_my_best')
+                    : subs;
+                  return filteredSubs.map(s => {
                     const subStatusKey = s.status || 'pending';
                     const subCfg = STATUSES[subStatusKey] || STATUSES.pending;
                     const isPickerOpen = openSubPickers.has(s.id);
@@ -2631,8 +2662,14 @@ function MorningStartModal({ onClaimReward, onStartPlanning, onClose }) {
 function FocusYourDay({ tasks, onComplete, forceOpen = false }) {
   const { colors } = useTheme();
   const [step, setStep] = useState(forceOpen ? 1 : 0); // 0 (start), 1 (must do), 2 (procrastinating), 3 (bonus), 4 (final)
-  const [selections, setSelections] = useState({ 1: [], 2: [], 3: [] });
+  const [selectedIds, setSelectedIds] = useState([]);
   const [search, setSearch] = useState('');
+  const [filterEnergy, setFilterEnergy] = useState([]);
+  const [filterTags, setFilterTags] = useState([]);
+  const [filterMissedOnly, setFilterMissedOnly] = useState(false);
+  const [filterDueToday, setFilterDueToday] = useState(false);
+  const [showTagMenu, setShowTagMenu] = useState(false);
+  const { dayStartTime } = useSettings();
   
   const today = new Date().toLocaleDateString();
   const [lastReset, setLastReset] = useState(null);
@@ -2642,30 +2679,55 @@ function FocusYourDay({ tasks, onComplete, forceOpen = false }) {
   }, [forceOpen]);
 
   function handleFullReset() {
-    onComplete({ 1: [], 2: [], 3: [] }, true); // true = force clear priorities
-    setSelections({ 1: [], 2: [], 3: [] });
+    onComplete([], true); // true = force clear priorities
+    setSelectedIds([]);
     setLastReset(today);
     AsyncStorage.setItem('@ADHD_last_reset', today);
     setStep(1);
   }
 
-  const undone = tasks.filter(t => t.status !== 'done' && t.status !== 'did_my_best');
-  const filtered = undone.filter(t => t.title.toLowerCase().includes(search.toLowerCase()));
+  const undone = tasks.filter(t => t.status !== 'done' && t.status !== 'did_my_best' && !t.isUrgent);
+  
+  const todayStr = getAppDayKey(dayStartTime);
+  const [tyear, tmonth, tday] = todayStr.split('-');
+  const todayMDY = `${tmonth}/${tday}/${tyear}`;
+
+  let filtered = undone;
+  if (search) {
+    const q = search.toLowerCase();
+    filtered = filtered.filter(t => t.title.toLowerCase().includes(q) || (t.tags || []).some(tag => tag.toLowerCase().includes(q)));
+  }
+  if (filterEnergy.length > 0) {
+    filtered = filtered.filter(t => filterEnergy.includes(t.energy));
+  }
+  if (filterTags.length > 0) {
+    filtered = filtered.filter(t => (t.tags || []).some(tag => filterTags.includes(tag)));
+  }
+  if (filterMissedOnly) {
+    filtered = filtered.filter(t => calculateTaskMissedStreak(t.statusHistory, dayStartTime) > 0);
+  }
+  if (filterDueToday) {
+    filtered = filtered.filter(t => t.dueDate === todayMDY);
+  }
+
+  // Tasks disappear as they are checked
+  filtered = filtered.filter(t => !selectedIds.includes(t.id));
+
+  const allTags = Array.from(new Set(tasks.flatMap(t => (t.tags || [])))).sort();
 
   const questions = [
     { id: 1, q: "What tasks must be done today?", multiple: true },
     { id: 2, q: "What tasks are causing you stress?", multiple: true },
-    { id: 3, q: "One task if you had nothing else to do?", multiple: false }
+    { id: 3, q: "One task if you had nothing else to do?", multiple: true }
   ];
 
   function toggleTask(id) {
-    setSelections(prev => {
-      const current = prev[step];
+    setSelectedIds(prev => {
       const isMulti = questions[step-1].multiple;
-      if (current.includes(id)) {
-        return { ...prev, [step]: current.filter(x => x !== id) };
+      if (prev.includes(id)) {
+        return prev.filter(x => x !== id);
       }
-      return { ...prev, [step]: isMulti ? [...current, id] : [id] };
+      return [...prev, id];
     });
   }
 
@@ -2683,11 +2745,12 @@ function FocusYourDay({ tasks, onComplete, forceOpen = false }) {
   }
 
   if (step === 0) {
+    const hasPriorities = tasks.some(t => t.isPriority);
     return (
       <TouchableOpacity activeOpacity={0.9} style={styles.fydStart} onPress={() => setStep(1)}>
         <Ionicons name="sparkles" size={24} color="#fff" />
         <View style={{ flex: 1, marginLeft: 12 }}>
-          <Text style={styles.fydStartTitle}>Focus Your Day</Text>
+          <Text style={styles.fydStartTitle}>{hasPriorities ? 'Refocus Your Day' : 'Focus Your Day'}</Text>
           <Text style={styles.fydStartSub}>Take 1 minute to plan your momentum</Text>
         </View>
         <Ionicons name="chevron-forward" size={20} color="#fff" style={{ opacity: 0.8 }} />
@@ -2714,27 +2777,138 @@ function FocusYourDay({ tasks, onComplete, forceOpen = false }) {
               value={search} 
               onChangeText={setSearch} 
             />
-          </View>
-          <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled>
-            {filtered.map(t => (
-              <TouchableOpacity key={t.id} style={styles.fydItem} onPress={() => toggleTask(t.id)}>
-                <Ionicons 
-                  name={selections[step].includes(t.id) ? 'checkbox' : 'square-outline'} 
-                  size={20} 
-                  color={selections[step].includes(t.id) ? '#8b5cf6' : '#d1d5db'} 
-                />
-                <Text style={[styles.fydItemText, selections[step].includes(t.id) && { color: '#8b5cf6', fontWeight: '600' }]}>{t.title}</Text>
+            {search.length > 0 && (
+              <TouchableOpacity onPress={() => setSearch('')}>
+                <Ionicons name="close-circle" size={16} color="#d1d5db" />
               </TouchableOpacity>
-            ))}
+            )}
+          </View>
+
+          {/* Filter Chips */}
+          <View style={{ marginBottom: 12 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 4 }}>
+              <TouchableOpacity 
+                style={[styles.metaChip, filterDueToday && { backgroundColor: '#6366f1', borderColor: '#4f46e5', borderWidth: 1 }]}
+                onPress={() => setFilterDueToday(!filterDueToday)}
+              >
+                <Ionicons name="calendar-outline" size={12} color={filterDueToday ? "#fff" : "#6366f1"} />
+                <Text style={[styles.metaChipText, { color: filterDueToday ? "#fff" : "#6b7280" }]}>Due Today</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.metaChip, filterMissedOnly && { backgroundColor: '#1f2937', borderColor: '#000', borderWidth: 1 }]}
+                onPress={() => setFilterMissedOnly(!filterMissedOnly)}
+              >
+                <Text style={{ fontSize: 10 }}>💀</Text>
+                <Text style={[styles.metaChipText, { color: filterMissedOnly ? "#fff" : "#6b7280" }]}>Missed Streak</Text>
+              </TouchableOpacity>
+
+              {Object.entries(ENERGY).map(([key, cfg]) => {
+                const active = filterEnergy.includes(key);
+                return (
+                  <TouchableOpacity 
+                    key={key} 
+                    style={[styles.metaChip, active && { backgroundColor: cfg.color, borderColor: cfg.color, borderWidth: 1 }]}
+                    onPress={() => setFilterEnergy(prev => prev.includes(key) ? prev.filter(x => x !== key) : [...prev, key])}
+                  >
+                    <Text style={[styles.metaChipText, { color: active ? "#fff" : cfg.color }]}>{cfg.label}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              {allTags.length > 0 && (
+                <View style={{ position: 'relative' }}>
+                  <TouchableOpacity 
+                    style={[styles.metaChip, filterTags.length > 0 && { backgroundColor: '#8b5cf6', borderColor: '#7c3aed', borderWidth: 1 }]}
+                    onPress={() => setShowTagMenu(!showTagMenu)}
+                  >
+                    <Ionicons name="pricetag-outline" size={12} color={filterTags.length > 0 ? "#fff" : "#8b5cf6"} />
+                    <Text style={[styles.metaChipText, { color: filterTags.length > 0 ? "#fff" : "#6b7280" }]}>
+                      {filterTags.length === 0 ? "All Tags" : `${filterTags.length} Filtered`}
+                    </Text>
+                    <Ionicons name={showTagMenu ? "chevron-up" : "chevron-down"} size={10} color={filterTags.length > 0 ? "#fff" : "#9ca3af"} />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </ScrollView>
+
+            {showTagMenu && (
+              <View style={{ 
+                marginTop: 8,
+                backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb',
+                padding: 8, shadowColor: '#000', shadowOpacity: 0.1, shadowRadius: 10, elevation: 5
+              }}>
+                <ScrollView style={{ maxHeight: 150 }}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {allTags.map(tag => {
+                      const active = filterTags.includes(tag);
+                      return (
+                        <TouchableOpacity 
+                          key={tag} 
+                          style={[{ 
+                            flexDirection: 'row', alignItems: 'center', paddingVertical: 6, paddingHorizontal: 10, 
+                            borderRadius: 16, backgroundColor: active ? '#f5f3ff' : '#f9fafb', borderWidth: 1, borderColor: active ? '#8b5cf6' : '#e5e7eb'
+                          }]}
+                          onPress={() => setFilterTags(prev => prev.includes(tag) ? prev.filter(x => x !== tag) : [...prev, tag])}
+                        >
+                          <Text style={{ fontSize: 12, color: active ? "#8b5cf6" : "#4b5563" }}>#{tag}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                  {filterTags.length > 0 && (
+                    <TouchableOpacity 
+                      style={{ marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: '#f3f4f6', alignItems: 'center' }}
+                      onPress={() => { setFilterTags([]); setShowTagMenu(false); }}
+                    >
+                      <Text style={{ fontSize: 11, color: '#ef4444', fontWeight: '700' }}>Clear All Tags</Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+              </View>
+            )}
+          </View>
+
+          <ScrollView style={{ maxHeight: 250 }} nestedScrollEnabled>
+            {filtered.length === 0 ? (
+              <Text style={{ textAlign: 'center', color: '#9ca3af', paddingVertical: 20 }}>No tasks match your filters</Text>
+            ) : (
+              filtered.map(t => {
+                const isSelected = selectedIds.includes(t.id);
+                const ms = calculateTaskMissedStreak(t.statusHistory, dayStartTime);
+                const isDueToday = t.dueDate === todayMDY;
+                
+                return (
+                  <TouchableOpacity key={t.id} style={styles.fydItem} onPress={() => toggleTask(t.id)}>
+                    <Ionicons 
+                      name={isSelected ? 'checkbox' : 'square-outline'} 
+                      size={20} 
+                      color={isSelected ? '#8b5cf6' : '#d1d5db'} 
+                    />
+                    <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.fydItemText, isSelected && { color: '#8b5cf6', fontWeight: '600' }]}>{t.title}</Text>
+                      {t.isUrgent && <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#ef4444' }} />}
+                      {ms > 0 && <Text style={{ fontSize: 10 }}>💀 {ms}</Text>}
+                      {isDueToday && <Ionicons name="calendar-outline" size={10} color="#6366f1" />}
+                    </View>
+                    {t.energy && (
+                      <View style={[styles.metaChip, { backgroundColor: ENERGY[t.energy]?.bg || '#f3f4f6', paddingHorizontal: 4 }]}>
+                        <Text style={[styles.metaChipText, { fontSize: 9, color: ENERGY[t.energy]?.color || '#6b7280' }]}>{ENERGY[t.energy]?.label}</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })
+            )}
           </ScrollView>
         </View>
 
         <TouchableOpacity 
-          style={[styles.fydNext, selections[step].length === 0 && { opacity: 0.5 }]} 
+          style={[styles.fydNext, selectedIds.length === 0 && { opacity: 0.5 }]} 
           onPress={() => {
-            if (selections[step].length > 0) {
+            if (selectedIds.length > 0) {
               if (step === 3) {
-                onComplete(selections);
+                onComplete(selectedIds);
                 setStep(4);
               } else {
                 setStep(step + 1);
@@ -2805,6 +2979,7 @@ export default function TasksScreen() {
   const [historyNewCompletions, setHistoryNewCompletions] = useState(0); // count of new done/did_my_best entries
   const [rewardQueue, setRewardQueue] = useState([]); // queue of {task, intent} for sequential rolls
   const [bulkRollCount, setBulkRollCount] = useState(0);
+  const [overstimulated, setOverstimulated] = useState(false);
   
   const [showMorningStart, setShowMorningStart] = useState(false);
   const [forceFocusOpen, setForceFocusOpen] = useState(false);
@@ -3064,7 +3239,7 @@ export default function TasksScreen() {
     setShuffleTask(next);
   };
   
-  const sections = groupByStatus(filtered);
+  const sections = groupByStatus(filtered, overstimulated);
 
   function confirmStatus(taskId, targetStatus, subtaskId = null) {
     const task = tasks.find(t => t.id === taskId);
@@ -3294,7 +3469,13 @@ export default function TasksScreen() {
 
   return (
     <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }} onScroll={handleScroll} scrollEventThrottle={16}>
+      <ScrollView 
+        ref={listRef}
+        style={{ flex: 1 }} 
+        contentContainerStyle={{ flexGrow: 1 }} 
+        onScroll={handleScroll} 
+        scrollEventThrottle={16}
+      >
 
       {showMorningStart && (
         <MorningStartModal 
@@ -3342,59 +3523,81 @@ export default function TasksScreen() {
             )}
           </View>
         </View>
+
+        <TouchableOpacity 
+          style={[
+            styles.metaChip, 
+            { paddingHorizontal: 10, paddingVertical: 4 }, 
+            overstimulated && { backgroundColor: '#10b981', borderColor: '#059669', borderWidth: 1 }
+          ]}
+          onPress={() => setOverstimulated(!overstimulated)}
+        >
+          <Ionicons 
+            name={overstimulated ? "leaf-outline" : "nuclear-outline"} 
+            size={14} 
+            color={overstimulated ? "#fff" : "#ef4444"} 
+          />
+          <Text style={[styles.metaChipText, { color: overstimulated ? "#fff" : "#ef4444", fontWeight: overstimulated ? '500' : '700' }]}>
+            {overstimulated ? "Zen Mode" : "Overstimulated"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
-      <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
-        <FocusYourDay 
-          tasks={tasks} 
-          forceOpen={forceFocusOpen}
-          onComplete={(sels, forceClear = false) => {
-            setForceFocusOpen(false);
-            const todayKey = getLocalDateKey();
-            AsyncStorage.setItem('@ADHD_last_reset', todayKey);
-            const allIds = [...sels[1], ...sels[2], ...sels[3]];
-            setTasks(prev => prev.map(t => {
-              if (forceClear) return { ...t, isPriority: false };
-              // Always replace old priorities with the new selection
-              return { ...t, isPriority: allIds.includes(t.id) };
-            }));
-          }} 
-        />
-        
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, marginTop: 12 }}>
-          <View style={[styles.statBox, { backgroundColor: '#f9fafb', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827' }}>{stats.total}</Text>
-            <Text style={{ fontSize: 11, color: '#6b7280', fontWeight: '600', textTransform: 'uppercase' }}>Total</Text>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: '#d1fae5', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#059669' }}>{stats.today}</Text>
-            <Text style={{ fontSize: 11, color: '#059669', fontWeight: '600', textTransform: 'uppercase' }}>Done</Text>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: '#fef3c7', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#d97706' }}>{stats.pending}</Text>
-            <Text style={{ fontSize: 11, color: '#d97706', fontWeight: '600', textTransform: 'uppercase' }}>Pending</Text>
-          </View>
-          <View style={[styles.statBox, { backgroundColor: '#e2e8f0', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
-            <Text style={{ fontSize: 18, fontWeight: '800', color: '#475569' }}>{stats.upcoming}</Text>
-            <Text style={{ fontSize: 11, color: '#475569', fontWeight: '600', textTransform: 'uppercase' }}>Upcoming</Text>
-          </View>
-        </ScrollView>
-      </View>
+      {!overstimulated && (
+        <View style={{ paddingHorizontal: 20, marginBottom: 16 }}>
+          <FocusYourDay 
+            tasks={tasks} 
+            forceOpen={forceFocusOpen}
+            onComplete={(sels, forceClear = false) => {
+              setForceFocusOpen(false);
+              const todayKey = getLocalDateKey();
+              AsyncStorage.setItem('@ADHD_last_reset', todayKey);
+              const allIds = sels;
+              setTasks(prev => prev.map(t => {
+                if (forceClear) return { ...t, isPriority: false };
+                // Always replace old priorities with the new selection
+                return { ...t, isPriority: allIds.includes(t.id) };
+              }));
+            }} 
+          />
+          
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12, marginTop: 12 }}>
+            <View style={[styles.statBox, { backgroundColor: '#f9fafb', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#111827' }}>{stats.total}</Text>
+              <Text style={{ fontSize: 11, color: '#6b7280', fontWeight: '600', textTransform: 'uppercase' }}>Total</Text>
+            </View>
+            <View style={[styles.statBox, { backgroundColor: '#d1fae5', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#059669' }}>{stats.today}</Text>
+              <Text style={{ fontSize: 11, color: '#059669', fontWeight: '600', textTransform: 'uppercase' }}>Done</Text>
+            </View>
+            <View style={[styles.statBox, { backgroundColor: '#fef3c7', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#d97706' }}>{stats.pending}</Text>
+              <Text style={{ fontSize: 11, color: '#d97706', fontWeight: '600', textTransform: 'uppercase' }}>Pending</Text>
+            </View>
+            <View style={[styles.statBox, { backgroundColor: '#e2e8f0', padding: 12, borderRadius: 12, alignItems: 'center', width: 90 }]}>
+              <Text style={{ fontSize: 18, fontWeight: '800', color: '#475569' }}>{stats.upcoming}</Text>
+              <Text style={{ fontSize: 11, color: '#475569', fontWeight: '600', textTransform: 'uppercase' }}>Upcoming</Text>
+            </View>
+          </ScrollView>
+        </View>
+      )}
 
       {/* ── Toolbar: view switcher + status chips + shuffle ── */}
       <View style={styles.toolbar}>
         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          <View style={styles.viewToggle}>
-            {VIEWS.map(v => (
-              <TouchableOpacity
-                key={v.key}
-                style={[styles.viewBtn, view === v.key && styles.viewBtnActive]}
-                onPress={() => setView(v.key)}
-              >
-                <Ionicons name={v.icon} size={17} color={view === v.key ? '#6366f1' : '#9ca3af'} />
-              </TouchableOpacity>
-            ))}
-          </View>
+          {!overstimulated && (
+            <View style={styles.viewToggle}>
+              {VIEWS.map(v => (
+                <TouchableOpacity
+                  key={v.key}
+                  style={[styles.viewBtn, view === v.key && styles.viewBtnActive]}
+                  onPress={() => setView(v.key)}
+                >
+                  <Ionicons name={v.icon} size={17} color={view === v.key ? '#6366f1' : '#9ca3af'} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
           <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSearch(s => !s)}>
             <Ionicons name="search-outline" size={19} color={showSearch ? '#6366f1' : '#6b7280'} />
@@ -3434,107 +3637,109 @@ export default function TasksScreen() {
       </View>
 
       {/* ── Status filter chips ── */}
-      <View style={{ height: 36, marginBottom: 4 }}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, alignItems: 'center', height: 36 }}>
-          {(filterStatus.length > 0 || filterMissedStreak || filterStreak) && (
-            <TouchableOpacity
-              style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' }}
-              onPress={() => { setFilterStatus([]); setFilterMissedStreak(false); setFilterStreak(false); }}
-            >
-              <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700' }}>Clear</Text>
-            </TouchableOpacity>
-          )}
-          {dueTodayCount > 0 && (() => {
-            const active = filterStatus.includes('due_today');
-            return (
+      {!overstimulated && (
+        <View style={{ height: 36, marginBottom: 4 }}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 16, gap: 6, alignItems: 'center', height: 36 }}>
+            {(filterStatus.length > 0 || filterMissedStreak || filterStreak) && (
               <TouchableOpacity
-                key="due_today"
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: active ? '#0ea5e9' : '#bae6fd', backgroundColor: active ? '#0ea5e9' : '#fff' }}
-                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== 'due_today') : [...prev, 'due_today'])}
+                style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' }}
+                onPress={() => { setFilterStatus([]); setFilterMissedStreak(false); setFilterStreak(false); }}
               >
-                <Ionicons name="calendar" size={10} color={active ? '#fff' : '#0ea5e9'} />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : '#0ea5e9' }}>Due Today</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : '#0ea5e980' }}>{dueTodayCount}</Text>
+                <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '700' }}>Clear</Text>
               </TouchableOpacity>
-            );
-          })()}
-          {['first_step', 'active', 'pending', 'missed'].map(s => {
-            const cfg = STATUSES[s];
-            const active = filterStatus.includes(s);
-            const count = tasks.filter(t => t.status === s).length;
-            if (count === 0) return null;
-            return (
-              <TouchableOpacity
-                key={s}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: cfg.color + '40', backgroundColor: active ? cfg.color : '#fff' }}
-                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== s) : [...prev, s])}
-              >
-                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: active ? '#fff' : cfg.color }} />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : cfg.color + '80' }}>{count}</Text>
-              </TouchableOpacity>
-            );
-          })}
-          {(() => {
-            const msCount = tasks.filter(t => calculateTaskMissedStreak(t.statusHistory, dayStartTime) >= 2).length;
-            if (msCount === 0) return null;
-            return (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: filterMissedStreak ? '#1f2937' : '#9ca3af40', backgroundColor: filterMissedStreak ? '#1f2937' : '#fff' }}
-                onPress={() => setFilterMissedStreak(v => !v)}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '600', color: filterMissedStreak ? '#f9fafb' : '#374151' }}>💀 Missed Streak</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: filterMissedStreak ? 'rgba(249,250,251,0.7)' : '#37415180' }}>{msCount}</Text>
-              </TouchableOpacity>
-            );
-          })()}
-          {(() => {
-            const streakCount = tasks.filter(t => (t.streak || 0) >= 2).length;
-            if (streakCount === 0) return null;
-            return (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: filterStreak ? '#ef4444' : '#ef444440', backgroundColor: filterStreak ? '#ef4444' : '#fff' }}
-                onPress={() => setFilterStreak(v => !v)}
-              >
-                <Text style={{ fontSize: 12, fontWeight: '600', color: filterStreak ? '#fff' : '#ef4444' }}>🔥 Streak</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: filterStreak ? 'rgba(255,255,255,0.7)' : '#ef444480' }}>{streakCount}</Text>
-              </TouchableOpacity>
-            );
-          })()}
-          {(() => {
-            const oneOffCount = tasks.filter(t => !t.frequency).length;
-            if (oneOffCount === 0) return null;
-            const active = filterStatus.includes('one_off');
-            return (
-              <TouchableOpacity
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: active ? '#6366f1' : '#9ca3af40', backgroundColor: active ? '#6366f1' : '#fff' }}
-                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== 'one_off') : [...prev, 'one_off'])}
-              >
-                <Ionicons name="infinite-outline" size={10} color={active ? '#fff' : '#6366f1'} />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : '#4b5563' }}>One-off</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : '#9ca3af80' }}>{oneOffCount}</Text>
-              </TouchableOpacity>
-            );
-          })()}
-          {['upcoming', 'done'].map(s => {
-            const cfg = STATUSES[s];
-            const active = filterStatus.includes(s);
-            const count = s === 'done' ? stats.today : tasks.filter(t => t.status === s).length;
-            if (count === 0) return null;
-            return (
-              <TouchableOpacity
-                key={s}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: cfg.color + '40', backgroundColor: active ? cfg.color : '#fff' }}
-                onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== s) : [...prev, s])}
-              >
-                <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: active ? '#fff' : cfg.color }} />
-                <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
-                <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : cfg.color + '80' }}>{count}</Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </View>
+            )}
+            {dueTodayCount > 0 && (() => {
+              const active = filterStatus.includes('due_today');
+              return (
+                <TouchableOpacity
+                  key="due_today"
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: active ? '#0ea5e9' : '#bae6fd', backgroundColor: active ? '#0ea5e9' : '#fff' }}
+                  onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== 'due_today') : [...prev, 'due_today'])}
+                >
+                  <Ionicons name="calendar" size={10} color={active ? '#fff' : '#0ea5e9'} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : '#0ea5e9' }}>Due Today</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : '#0ea5e980' }}>{dueTodayCount}</Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {['first_step', 'active', 'pending', 'missed'].map(s => {
+              const cfg = STATUSES[s];
+              const active = filterStatus.includes(s);
+              const count = tasks.filter(t => t.status === s).length;
+              if (count === 0) return null;
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: cfg.color + '40', backgroundColor: active ? cfg.color : '#fff' }}
+                  onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== s) : [...prev, s])}
+                >
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: active ? '#fff' : cfg.color }} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : cfg.color + '80' }}>{count}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {(() => {
+              const msCount = tasks.filter(t => calculateTaskMissedStreak(t.statusHistory, dayStartTime) >= 2).length;
+              if (msCount === 0) return null;
+              return (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: filterMissedStreak ? '#1f2937' : '#9ca3af40', backgroundColor: filterMissedStreak ? '#1f2937' : '#fff' }}
+                  onPress={() => setFilterMissedStreak(v => !v)}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: filterMissedStreak ? '#f9fafb' : '#374151' }}>💀 Missed Streak</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: filterMissedStreak ? 'rgba(249,250,251,0.7)' : '#37415180' }}>{msCount}</Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {(() => {
+              const streakCount = tasks.filter(t => (t.streak || 0) >= 2).length;
+              if (streakCount === 0) return null;
+              return (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: filterStreak ? '#ef4444' : '#ef444440', backgroundColor: filterStreak ? '#ef4444' : '#fff' }}
+                  onPress={() => setFilterStreak(v => !v)}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: filterStreak ? '#fff' : '#ef4444' }}>🔥 Streak</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: filterStreak ? 'rgba(255,255,255,0.7)' : '#ef444480' }}>{streakCount}</Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {(() => {
+              const oneOffCount = tasks.filter(t => !t.frequency).length;
+              if (oneOffCount === 0) return null;
+              const active = filterStatus.includes('one_off');
+              return (
+                <TouchableOpacity
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: active ? '#6366f1' : '#9ca3af40', backgroundColor: active ? '#6366f1' : '#fff' }}
+                  onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== 'one_off') : [...prev, 'one_off'])}
+                >
+                  <Ionicons name="infinite-outline" size={10} color={active ? '#fff' : '#6366f1'} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : '#4b5563' }}>One-off</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : '#9ca3af80' }}>{oneOffCount}</Text>
+                </TouchableOpacity>
+              );
+            })()}
+            {['upcoming', 'done'].map(s => {
+              const cfg = STATUSES[s];
+              const active = filterStatus.includes(s);
+              const count = s === 'done' ? stats.today : tasks.filter(t => t.status === s).length;
+              if (count === 0) return null;
+              return (
+                <TouchableOpacity
+                  key={s}
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 14, borderWidth: 1.5, borderColor: cfg.color + '40', backgroundColor: active ? cfg.color : '#fff' }}
+                  onPress={() => setFilterStatus(prev => active ? prev.filter(x => x !== s) : [...prev, s])}
+                >
+                  <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: active ? '#fff' : cfg.color }} />
+                  <Text style={{ fontSize: 12, fontWeight: '600', color: active ? '#fff' : cfg.color }}>{cfg.label}</Text>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: active ? 'rgba(255,255,255,0.7)' : cfg.color + '80' }}>{count}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      )}
 
       {/* ── Expanded Search & Filters ── */}
       {/* ── Search Bar (only text input now) ── */}
@@ -3560,93 +3765,95 @@ export default function TasksScreen() {
       )}
 
       {/* ── Persistent Filter Dashboard ── */}
-      <View style={{ marginBottom: 12 }}>
-        {/* Row 1: Tag controls */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 8, paddingBottom: 8 }}>
-          {(filterTags.length > 0 || filterEnergy.length > 0) && (
-            <TouchableOpacity
-              style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' }}
-              onPress={() => { setFilterTags([]); setFilterEnergy([]); setShowTagMenu(false); }}
-            >
-              <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '800' }}>Clear</Text>
-            </TouchableOpacity>
-          )}
-          {/* Untagged chip */}
-          {(() => {
-            const active = filterTags.includes('untagged');
-            return (
+      {!overstimulated && (
+        <View style={{ marginBottom: 12 }}>
+          {/* Row 1: Tag controls */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, gap: 8, paddingBottom: 8 }}>
+            {(filterTags.length > 0 || filterEnergy.length > 0) && (
               <TouchableOpacity
-                style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
-                onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== 'untagged') : [...prev, 'untagged'])}
+                style={{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#fee2e2', borderWidth: 1, borderColor: '#fecaca' }}
+                onPress={() => { setFilterTags([]); setFilterEnergy([]); setShowTagMenu(false); }}
               >
-                <Text style={[{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>Untagged</Text>
+                <Text style={{ fontSize: 12, color: '#ef4444', fontWeight: '800' }}>Clear</Text>
               </TouchableOpacity>
-            );
-          })()}
-          {/* Tags menu button */}
-          {allTags.length > 0 && (
-            <TouchableOpacity
-              style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: filterTags.filter(t => t !== 'untagged').length > 0 ? '#8b5cf6' : '#f5f3ff', borderWidth: 1, borderColor: filterTags.filter(t => t !== 'untagged').length > 0 ? '#8b5cf6' : '#ddd6fe' }}
-              onPress={() => setShowTagMenu(s => !s)}
-            >
-              <Text style={{ fontSize: 12, fontWeight: '600', color: filterTags.filter(t => t !== 'untagged').length > 0 ? '#fff' : '#7c3aed' }}>
-                Tags{filterTags.filter(t => t !== 'untagged').length > 0 ? ` (${filterTags.filter(t => t !== 'untagged').length})` : ''}
-              </Text>
-              <Ionicons name={showTagMenu ? 'chevron-up' : 'chevron-down'} size={12} color={filterTags.filter(t => t !== 'untagged').length > 0 ? '#fff' : '#7c3aed'} />
-            </TouchableOpacity>
-          )}
-        </View>
-        {/* Tag menu dropdown */}
-        {showTagMenu && (
-          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 8 }}>
-            {allTags.map(tag => {
-              const active = filterTags.includes(tag);
+            )}
+            {/* Untagged chip */}
+            {(() => {
+              const active = filterTags.includes('untagged');
               return (
                 <TouchableOpacity
-                  key={tag}
-                  style={[{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
-                  onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== tag) : [...prev, tag])}
+                  style={[{ paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
+                  onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== 'untagged') : [...prev, 'untagged'])}
                 >
-                  <Text style={[{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>#{tag}</Text>
+                  <Text style={[{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>Untagged</Text>
                 </TouchableOpacity>
               );
-            })}
+            })()}
+            {/* Tags menu button */}
+            {allTags.length > 0 && (
+              <TouchableOpacity
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, backgroundColor: filterTags.filter(t => t !== 'untagged').length > 0 ? '#8b5cf6' : '#f5f3ff', borderWidth: 1, borderColor: filterTags.filter(t => t !== 'untagged').length > 0 ? '#8b5cf6' : '#ddd6fe' }}
+                onPress={() => setShowTagMenu(s => !s)}
+              >
+                <Text style={{ fontSize: 12, fontWeight: '600', color: filterTags.filter(t => t !== 'untagged').length > 0 ? '#fff' : '#7c3aed' }}>
+                  Tags{filterTags.filter(t => t !== 'untagged').length > 0 ? ` (${filterTags.filter(t => t !== 'untagged').length})` : ''}
+                </Text>
+                <Ionicons name={showTagMenu ? 'chevron-up' : 'chevron-down'} size={12} color={filterTags.filter(t => t !== 'untagged').length > 0 ? '#fff' : '#7c3aed'} />
+              </TouchableOpacity>
+            )}
           </View>
-        )}
+          {/* Tag menu dropdown */}
+          {showTagMenu && (
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 20, paddingBottom: 8 }}>
+              {allTags.map(tag => {
+                const active = filterTags.includes(tag);
+                return (
+                  <TouchableOpacity
+                    key={tag}
+                    style={[{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 14, backgroundColor: '#f5f3ff', borderWidth: 1, borderColor: '#ddd6fe' }, active && { backgroundColor: '#8b5cf6', borderColor: '#8b5cf6' }]}
+                    onPress={() => setFilterTags(prev => active ? prev.filter(x => x !== tag) : [...prev, tag])}
+                  >
+                    <Text style={[{ fontSize: 12, color: '#7c3aed', fontWeight: '600' }, active && { color: '#fff' }]}>#{tag}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
 
-        {/* Row 2: Energy & AND/OR */}
-        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 }}>
-          <TouchableOpacity 
-            style={{ backgroundColor: filterMode === 'AND' ? '#111827' : '#f3f4f6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, marginRight: 10 }}
-            onPress={() => setFilterMode(m => m === 'AND' ? 'OR' : 'AND')}
-          >
-            <Text style={{ fontSize: 10, fontWeight: '900', color: filterMode === 'AND' ? '#fff' : '#6b7280', textTransform: 'uppercase' }}>
-              {filterMode}
-            </Text>
-          </TouchableOpacity>
+          {/* Row 2: Energy & AND/OR */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20 }}>
+            <TouchableOpacity 
+              style={{ backgroundColor: filterMode === 'AND' ? '#111827' : '#f3f4f6', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, marginRight: 10 }}
+              onPress={() => setFilterMode(m => m === 'AND' ? 'OR' : 'AND')}
+            >
+              <Text style={{ fontSize: 10, fontWeight: '900', color: filterMode === 'AND' ? '#fff' : '#6b7280', textTransform: 'uppercase' }}>
+                {filterMode}
+              </Text>
+            </TouchableOpacity>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-            {['low', 'medium', 'high', 'unset'].map(e => {
-              const active = filterEnergy.includes(e);
-              const label = e === 'unset' ? 'No Energy' : ENERGY[e].label;
-              return (
-                <TouchableOpacity 
-                  key={e} 
-                  style={[{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#fff' }, active && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
-                  onPress={() => setFilterEnergy(prev => active ? prev.filter(x => x !== e) : [...prev, e])}
-                >
-                  <Text style={[{ fontSize: 11, fontWeight: '600' }, active ? { color: '#fff' } : { color: '#6b7280' }]}>{label}</Text>
-                </TouchableOpacity>
-              )
-            })}
-          </ScrollView>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+              {['low', 'medium', 'high', 'unset'].map(e => {
+                const active = filterEnergy.includes(e);
+                const label = e === 'unset' ? 'No Energy' : ENERGY[e].label;
+                return (
+                  <TouchableOpacity 
+                    key={e} 
+                    style={[{ paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, borderWidth: 1, borderColor: '#e5e7eb', backgroundColor: '#fff' }, active && { backgroundColor: '#6366f1', borderColor: '#6366f1' }]}
+                    onPress={() => setFilterEnergy(prev => active ? prev.filter(x => x !== e) : [...prev, e])}
+                  >
+                    <Text style={[{ fontSize: 11, fontWeight: '600' }, active ? { color: '#fff' } : { color: '#6b7280' }]}>{label}</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </ScrollView>
+          </View>
         </View>
-      </View>
+      )}
 
       <View style={styles.divider} />
 
       {/* ── List view ── */}
-      {view === 'list' && (
+      {(view === 'list' || overstimulated) && (
         filtered.length === 0
           ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
           : (filterMissedStreak || filterStreak)
@@ -3677,6 +3884,7 @@ export default function TasksScreen() {
                     });
                   }}
                   onBulkSubtaskStatus={handleBulkSubtaskStatus}
+                  overstimulated={overstimulated}
                 />
               ))
             : sections.map(section => (
@@ -3715,6 +3923,7 @@ export default function TasksScreen() {
                         });
                       }}
                       onBulkSubtaskStatus={handleBulkSubtaskStatus}
+                      overstimulated={overstimulated}
                     />
                   ))}
                 </View>
@@ -3722,7 +3931,7 @@ export default function TasksScreen() {
       )}
 
       {/* ── Card view ── */}
-      {view === 'cards' && (
+      {view === 'cards' && !overstimulated && (
         filtered.length === 0
           ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
           : <View style={styles.cardGrid}>

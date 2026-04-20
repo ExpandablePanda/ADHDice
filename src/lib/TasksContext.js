@@ -479,6 +479,10 @@ export function TasksProvider({ children }) {
             
             if (isDueToday && !isDoneToday) {
                newTask.status = 'pending';
+               newTask.subtasks = mapSubtasks(t.subtasks || [], s => {
+                 if (s.status === 'upcoming') return { ...s, status: 'pending' };
+                 return s;
+               });
                changed = true;
             }
           }
@@ -593,6 +597,15 @@ export function TasksProvider({ children }) {
         nextData = {
           status: intentStatus
         };
+        // Propagate 'missed' or 'pending' status to subtasks if they aren't done
+        if (intentStatus === 'missed' || intentStatus === 'pending') {
+          nextData.subtasks = mapSubtasks(t.subtasks || [], s => {
+            if (s.status !== 'done' && s.status !== 'did_my_best') {
+              return { ...s, status: intentStatus };
+            }
+            return s;
+          });
+        }
       }
 
       const updated = {
