@@ -8,7 +8,7 @@ import { supabase } from './supabase';
 export const STATUSES = {
   first_step:  { label: '1st Step',    color: '#8b5cf6', icon: 'footsteps-outline', next: 'active' },
   upcoming:    { label: 'Upcoming',    color: '#64748b', icon: 'calendar-outline', next: 'pending' },
-  pending:     { label: 'Pending',     color: '#f59e0b', icon: 'time-outline', next: 'active' },
+  pending:     { label: 'Pending',     color: '#f97316', icon: 'time-outline', next: 'active' },
   active:      { label: 'In Progress', color: '#eab308', icon: 'play-outline', next: 'did_my_best' },
   did_my_best: { label: 'Did My Best', color: '#0ea5e9', icon: 'star-outline', next: 'missed' },
   missed:      { label: 'Missed',      color: '#ef4444', icon: 'close-circle-outline', next: 'done' },

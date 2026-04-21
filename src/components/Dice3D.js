@@ -180,7 +180,7 @@ export default function Dice3D({ size, rolling, result, color }) {
     <View style={{ width: size, height: size, alignItems: 'center', justifyContent: 'center', backgroundColor: 'transparent' }}>
       <LoadingState color={color} />
       
-      <Canvas style={{ flex: 1, width: '100%', height: '100%' }} alpha legacy>
+      <Canvas style={{ flex: 1, width: '100%', height: '100%' }} alpha legacy samples={0}>
         <PerspectiveCamera makeDefault position={[0, 0, 6]} fov={35} />
         <ambientLight intensity={1.5} />
         <directionalLight position={[5, 10, 5]} intensity={2} />

@@ -1,0 +1,341 @@
+import React, { useRef, useMemo } from 'react';
+import { useFrame, useLoader } from '@react-three/fiber/native';
+import { useGLTF, useTexture } from '@react-three/drei/native';
+import * as THREE from 'three';
+import { STATUSES, calculateTaskStreak, calculateTaskMissedStreak } from '../lib/TasksContext';
+
+const ENERGY = {
+  low:    { label: 'Low',    color: '#10b981', bg: '#d1fae5' },
+  medium: { label: 'Medium', color: '#f59e0b', bg: '#fef3c7' },
+  high:   { label: 'High',   color: '#ef4444', bg: '#fee2e2' },
+};
+
+function lightenColor(hex, amount = 0.85) {
+  const c = new THREE.Color(hex);
+  return c.lerp(new THREE.Color('#ffffff'), amount);
+}
+
+const ICON_MAP = {
+  'footsteps-outline': '👣',
+  'calendar-outline':  '📅',
+  'time-outline':      '⏳',
+  'play-outline':      '▶️',
+  'star-outline':      '⭐',
+  'close-circle-outline': '❌',
+  'checkmark-circle-outline': '✅',
+};
+
+// ── Geometry helpers ──────────────────────────────────────────────────────────
+
+function createRoundedRectShape(width, height, radius) {
+  const shape = new THREE.Shape();
+  const x = -width / 2;
+  const y = -height / 2;
+  shape.moveTo(x, y + radius);
+  shape.lineTo(x, y + height - radius);
+  shape.quadraticCurveTo(x, y + height, x + radius, y + height);
+  shape.lineTo(x + width - radius, y + height);
+  shape.quadraticCurveTo(x + width, y + height, x + width, y + height - radius);
+  shape.lineTo(x + width, y + radius);
+  shape.quadraticCurveTo(x + width, y, x + width - radius, y);
+  shape.lineTo(x + radius, y);
+  shape.quadraticCurveTo(x, y, x, y + radius);
+  return shape;
+}
+
+const maskUrl = (text, w, h) =>
+  `https://placehold.co/${w}x${h}/000000/FFFFFF.png?text=${encodeURIComponent(text)}&font=montserrat`;
+
+const DUMMY_URL = 'https://placehold.co/10x10/000000/000000.png';
+
+const chipW = (text, pad = 0.2) => Math.max(0.28, text.length * 0.045 + pad);
+
+// ── Chip component ────────────────────────────────────────────────────────────
+
+function Chip({ position, width, height, color, maskTexture, onPress, textColor, backgroundColor, borderColor }) {
+  const radius = 0.03; // Rectangular look
+  const shape = useMemo(
+    () => createRoundedRectShape(width, height, radius),
+    [width, height]
+  );
+  
+  const borderSize = 0.015;
+  const borderShape = useMemo(
+    () => createRoundedRectShape(width + borderSize, height + borderSize, radius + borderSize/2),
+    [width, height]
+  );
+
+  const handlePress = onPress
+    ? (e) => { e.stopPropagation(); onPress(); }
+    : undefined;
+
+  // Ensure colors are linear for Three.js
+  const finalBorderColor = useMemo(() => new THREE.Color(borderColor || color).convertSRGBToLinear(), [borderColor, color]);
+  const finalBgColor = useMemo(() => new THREE.Color(backgroundColor || '#ffffff').convertSRGBToLinear(), [backgroundColor]);
+  const finalTextColor = useMemo(() => new THREE.Color(textColor || color).convertSRGBToLinear(), [textColor, color]);
+
+  return (
+    <group position={position}>
+      {/* Border mesh */}
+      <mesh onClick={handlePress}>
+        <shapeGeometry args={[borderShape]} />
+        <meshBasicMaterial color={finalBorderColor} />
+      </mesh>
+      {/* Background mesh */}
+      <mesh position={[0, 0, 0.005]}>
+        <shapeGeometry args={[shape]} />
+        <meshBasicMaterial color={finalBgColor} />
+      </mesh>
+      {/* Text mesh */}
+      <mesh position={[0, 0, 0.01]}>
+        <planeGeometry args={[width, height]} />
+        <meshBasicMaterial
+          color={finalTextColor}
+          alphaMap={maskTexture}
+          transparent
+          alphaTest={0.5}
+        />
+      </mesh>
+    </group>
+  );
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
+export default function TaskCard3D({
+  task,
+  position = [0, 0, 0],
+  cardScale = 1,
+  isFlipped = false,
+  spinning = false,
+  onPress,
+  onFlip,
+  onHistoryPress,
+  onConfirmStatus,
+}) {
+  const groupRef  = useRef();
+  const flipRef   = useRef(isFlipped ? Math.PI : 0);
+  const spinRef   = useRef(0);
+
+  const { scene }    = useGLTF(require('../../assets/playing_cards.glb'));
+  const iconTexture  = useTexture(require('../../assets/logo.png'));
+
+  // ── Task data ─────────────────────────────────────────────────────────────
+  const title       = task?.title  || 'Untitled';
+  const taskId      = task?.id     || '—';
+  const status      = task?.status || 'pending';
+  const energy      = task?.energy ?? null;
+  const tags        = task?.tags   || [];
+  const dueDate     = task?.dueDate || null;
+  const statusHist  = task?.statusHistory || {};
+
+  const statusInfo   = STATUSES[status] || STATUSES.pending;
+  const statusLabel  = `${ICON_MAP[statusInfo.icon] || ''} ${statusInfo.label}`.toUpperCase();
+  const nextStatus   = statusInfo.next;
+
+  // Convert sRGB hex → linear so colors match React Native UI in legacy canvas mode
+  const statusColor  = useMemo(
+    () => new THREE.Color(statusInfo.color).convertSRGBToLinear(),
+    [statusInfo.color]
+  );
+  const streakColorLinear  = useMemo(() => new THREE.Color('#f59e0b').convertSRGBToLinear(), []);
+  const missedColorLinear  = useMemo(() => new THREE.Color('#ef4444').convertSRGBToLinear(), []);
+
+  const streak       = calculateTaskStreak(statusHist);
+  const missedStreak = calculateTaskMissedStreak(statusHist);
+
+  const dueDateLabel = dueDate
+    ? `DUE ${dueDate.replace(/(\d{4})-(\d{2})-(\d{2})/, '$2/$3')}`
+    : null;
+
+  const energyInfo   = energy != null ? (ENERGY[energy] || null) : null;
+  const energyLabel  = energyInfo ? energyInfo.label.toUpperCase() : null;
+
+  const streakLabel = streak > 0
+    ? `🔥 HOT STREAK ${streak}`
+    : missedStreak > 0 ? `💀 MISSED STREAK ${missedStreak}` : null;
+  const streakColor = streak > 0 ? streakColorLinear : missedColorLinear;
+
+  // ── Textures (all unconditional — no conditional hooks) ───────────────────
+  const statusMaskTex  = useLoader(THREE.TextureLoader, maskUrl(statusLabel.toUpperCase(), 400, 100));
+  const titleMaskTex   = useLoader(THREE.TextureLoader, maskUrl(title, 800, 300));
+  const historyMaskTex = useLoader(THREE.TextureLoader, maskUrl('HISTORY', 300, 100));
+  const dueMaskTex     = useLoader(THREE.TextureLoader, dueDateLabel  ? maskUrl(dueDateLabel, 500, 100)  : DUMMY_URL);
+  const energyMaskTex  = useLoader(THREE.TextureLoader, energyLabel   ? maskUrl(energyLabel, 300, 100)   : DUMMY_URL);
+  const streakMaskTex  = useLoader(THREE.TextureLoader, streakLabel   ? maskUrl(streakLabel, 300, 100)   : DUMMY_URL);
+
+  const tagUrls         = tags.length > 0 ? tags.map(t => maskUrl(t.toUpperCase(), 300, 100)) : [DUMMY_URL];
+  const tagMaskTextures = useLoader(THREE.TextureLoader, tagUrls);
+
+  useMemo(() => {
+    const all = [statusMaskTex, titleMaskTex, historyMaskTex,
+                 dueMaskTex, energyMaskTex, streakMaskTex, ...tagMaskTextures];
+    all.forEach(t => {
+      if (t) { t.premultiplyAlpha = false; t.generateMipmaps = false; t.needsUpdate = true; }
+    });
+  }, [statusMaskTex, titleMaskTex, historyMaskTex,
+      dueMaskTex, energyMaskTex, streakMaskTex, tagMaskTextures]);
+
+  // ── Clone card meshes from shared GLB ────────────────────────────────────
+  const { frontCard, backCard } = useMemo(() => {
+    if (!scene) return { frontCard: null, backCard: null };
+    let front = null, back = null;
+    scene.traverse(child => {
+      if (!child.isMesh) return;
+      if (child.name === 'base_card1_Guzma_0')    front = child.clone();
+      if (child.name === 'base_card2_Lusamine_0') back  = child.clone();
+    });
+    if (front) front.material = new THREE.MeshBasicMaterial({ color: statusColor });
+    if (back)  back.material  = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+    return { frontCard: front, backCard: back };
+  }, [scene]); // clone once; color updated below
+
+  // Keep front card color in sync with status (handles status changes without re-cloning)
+  if (frontCard) frontCard.material.color.set(statusColor);
+
+  // ── Flip animation ────────────────────────────────────────────────────────
+  useFrame((_, delta) => {
+    if (!groupRef.current) return;
+    if (spinning) spinRef.current += delta * 0.4;
+    const flipTarget = isFlipped ? Math.PI : 0;
+    flipRef.current = THREE.MathUtils.lerp(flipRef.current, flipTarget, Math.min(1, delta * 6));
+    groupRef.current.rotation.y = spinRef.current + flipRef.current;
+  });
+
+  if (!frontCard || !backCard) return null;
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  const sW = chipW(statusLabel);
+  const dW = dueDateLabel  ? chipW(dueDateLabel, 0.25)  : 0;
+  const eW = energyLabel   ? chipW(energyLabel, 0.25)   : 0;
+  const stW = streakLabel  ? chipW(streakLabel, 0.25)   : 0;
+  const hW = chipW('HISTORY', 0.25);
+
+  const tagsData = tags.length > 0
+    ? tags.map((t, i) => ({ text: t, width: chipW(t), mask: tagMaskTextures[i] }))
+    : [];
+  const tagRowW = tagsData.length > 0
+    ? tagsData.reduce((a, t) => a + t.width + 0.08, 0) - 0.08
+    : 0;
+
+  return (
+    <group ref={groupRef} position={position} scale={[cardScale, cardScale, cardScale]}>
+
+      {/* ── FRONT FACE ───────────────────────────────────────────────────── */}
+      <group position={[0, 0, 0.005]}>
+
+        {/* Card base — click anywhere on card body opens detail */}
+        <primitive object={frontCard} scale={1.4} onClick={onPress} />
+
+        {/* Scaled front face content with corner spacing */}
+        <group scale={[1.6, 1.6, 1]}>
+          {/* ROW 1: Status (left, tappable) | Energy (right) */}
+          <Chip
+            position={[-0.9 + sW / 2, 1.1, 0.12]}
+            width={sW} height={0.2}
+            borderColor={statusInfo.color}
+            backgroundColor={lightenColor(statusInfo.color, 0.9)}
+            textColor={statusInfo.color}
+            maskTexture={statusMaskTex}
+            onPress={() => onConfirmStatus && onConfirmStatus(task.id, nextStatus)}
+          />
+          {energyLabel && (
+            <Chip
+              position={[0.9 - eW / 2, 1.1, 0.12]}
+              width={eW} height={0.2} 
+              borderColor={energyInfo?.color || '#cbd5e1'}
+              backgroundColor={energyInfo?.bg || '#f8fafc'}
+              textColor={energyInfo?.color || '#64748b'}
+              maskTexture={energyMaskTex}
+            />
+          )}
+
+          {/* ROW 2: Due date (left) | Streak / missed streak (right) */}
+          {dueDateLabel && (
+            <Chip
+              position={[-0.9 + dW / 2, 0.8, 0.12]}
+              width={dW} height={0.2} 
+              borderColor="#7dd3fc"
+              backgroundColor="#e0f2fe"
+              textColor="#0369a1"
+              maskTexture={dueMaskTex}
+            />
+          )}
+          {streakLabel && (
+            <Chip
+              position={[0.9 - stW / 2, 0.8, 0.12]}
+              width={stW} height={0.2}
+              borderColor={streak > 0 ? '#f59e0b' : '#ef4444'}
+              backgroundColor={streak > 0 ? '#fef3c7' : '#fee2e2'}
+              textColor={streak > 0 ? '#b45309' : '#b91c1c'}
+              maskTexture={streakMaskTex}
+            />
+          )}
+
+          {/* CENTER: Task title */}
+          <mesh position={[0, 0.08, 0.12]}>
+            <planeGeometry args={[1.6, 0.55]} />
+            <meshBasicMaterial
+              color="#ffffff"
+              alphaMap={titleMaskTex}
+              transparent
+              alphaTest={0.5}
+            />
+          </mesh>
+
+          {/* History chip — tappable, opens history modal */}
+          <Chip
+            position={[0, -0.8, 0.12]}
+            width={hW} height={0.2} 
+            borderColor="#94a3b8"
+            backgroundColor="#f1f5f9"
+            textColor="#475569"
+            maskTexture={historyMaskTex}
+            onPress={onHistoryPress}
+          />
+
+          {/* FOOTER: Tags row */}
+          {tagsData.length > 0 && (
+            <group position={[0, -1.1, 0.12]}>
+              {tagsData.map((tag, i) => {
+                let xOffset = -tagRowW / 2;
+                for (let j = 0; j < i; j++) xOffset += tagsData[j].width + 0.08;
+                return (
+                  <Chip
+                    key={i}
+                    position={[xOffset + tag.width / 2, 0, 0]}
+                    width={tag.width} height={0.2} 
+                    borderColor="#cbd5e1"
+                    backgroundColor="#f8fafc"
+                    textColor="#64748b"
+                    maskTexture={tag.mask}
+                  />
+                );
+              })}
+            </group>
+          )}
+        </group>
+      </group>
+
+      {/* ── BACK FACE ────────────────────────────────────────────────────── */}
+      <group position={[0, 0, -0.005]} rotation={[0, Math.PI, 0]}>
+        <primitive object={backCard} scale={1.4} />
+        {/* Tap logo to flip back */}
+        <mesh
+          position={[0, 0, 0.05]}
+          onClick={(e) => { e.stopPropagation(); onFlip && onFlip(); }}
+        >
+          <planeGeometry args={[1.1, 0.712]} />
+          <meshBasicMaterial map={iconTexture} transparent alphaTest={0.05} color="#ffffff" />
+        </mesh>
+
+        {/* REPLACED PINK CIRCLE WITH LOGO - 3.2 UNITS - CENTERED */}
+        <mesh position={[0, 0, 0.06]}>
+          <planeGeometry args={[3.2, 2.07]} />
+          <meshBasicMaterial map={iconTexture} transparent alphaTest={0.05} color="#ffffff" />
+        </mesh>
+      </group>
+
+    </group>
+  );
+}

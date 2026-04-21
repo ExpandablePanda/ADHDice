@@ -55,6 +55,7 @@ import GamesScreen from './src/screens/GamesScreen';
 import StatsScreen from './src/screens/StatsScreen';
 import NotesScreen from './src/screens/NotesScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import TestScreen from './src/screens/TestScreen';
 import { ThemeProvider, useTheme } from './src/lib/ThemeContext';
 import { TasksProvider } from './src/lib/TasksContext';
 import { EconomyProvider, useEconomy } from './src/lib/EconomyContext';
@@ -136,6 +137,7 @@ const tabs = [
   { name: 'Stats',        component: StatsScreen,     icon: 'bar-chart-outline' },
   { name: 'Notes',        component: NotesScreen,     icon: 'document-text-outline' },
   { name: 'Settings',     component: SettingsScreen,  icon: 'settings-outline' },
+  { name: 'Test',         component: TestScreen,      icon: 'flask-outline' },
 ];
 
 function RPGHeaderRight() {

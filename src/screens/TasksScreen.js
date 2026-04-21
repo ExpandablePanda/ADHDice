@@ -23,6 +23,7 @@ import ScrollToTop from '../components/ScrollToTop';
 import ModalScreen from '../components/ModalScreen';
 import EfficiencyRollModal from '../components/EfficiencyRollModal';
 import { APP_VERSION } from '../lib/Constants';
+import CardViewCanvas from '../components/CardViewCanvas';
 
 const SCREEN_W = Dimensions.get('window').width;
 const CARD_GAP = 12;
@@ -3934,23 +3935,14 @@ export default function TasksScreen() {
       {view === 'cards' && !overstimulated && (
         filtered.length === 0
           ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
-          : <View style={styles.cardGrid}>
-              {filtered.map((item, i) => (
-                <TaskCard 
-                  key={String(item.id) + '-' + i} 
-                  task={item} 
-                  onConfirmStatus={confirmStatus} 
-                  onOpen={setEditingTask} 
-                  onHistory={t => setHistoryTask(t.id)} 
-                  isFlipped={flippedCards.has(item.id)} 
-                  onFlipCard={flipCard} 
-                  onViewNote={setViewingNote}
-                  selectionMode={selectionMode}
-                  isSelected={selectedIds.has(item.id)}
-                  onToggleSelection={toggleTaskSelection}
-                />
-              ))}
-            </View>
+          : <CardViewCanvas
+              tasks={filtered}
+              flippedCards={flippedCards}
+              onOpen={setEditingTask}
+              onHistory={t => setHistoryTask(t.id)}
+              onConfirmStatus={confirmStatus}
+              onFlipCard={flipCard}
+            />
       )}
 
       </ScrollView>
