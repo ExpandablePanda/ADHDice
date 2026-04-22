@@ -91,9 +91,6 @@ export default function CardViewCanvas({
   const glbUri  = Platform.OS === 'web' ? assets?.[0]?.uri : GLB_MODULE;
   const logoUri = Platform.OS === 'web' ? assets?.[1]?.uri : LOGO_MODULE;
 
-  // Don't render until assets are resolved on web
-  if (Platform.OS === 'web' && !glbUri) return null;
-
   const rawScrollPx  = useRef(0);
   const lastScrollPx = useRef(0);
 
@@ -108,6 +105,9 @@ export default function CardViewCanvas({
       rawScrollPx.current = Math.max(0, lastScrollPx.current - gs.dx);
     },
   }), []);
+
+  // Don't render until assets are resolved on web
+  if (Platform.OS === 'web' && !glbUri) return null;
 
   return (
     <View
