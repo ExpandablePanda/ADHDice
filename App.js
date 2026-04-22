@@ -1,6 +1,6 @@
-import { Platform, View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
+import { Platform, View, Text, TouchableOpacity, StyleSheet, Image, ScrollView, LayoutAnimation } from 'react-native';
 import React from 'react';
-import { NavigationContainer, NavigationIndependentTree } from '@react-navigation/native';
+import { NavigationContainer, NavigationIndependentTree, useNavigation, useNavigationState } from '@react-navigation/native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
@@ -230,19 +230,14 @@ function MainApp() {
     >
       <StatusBar style={isDark ? "light" : "dark"} />
       <Tab.Navigator
+        tabBar={props => <FloatingNav {...props} tabs={tabs} />}
         screenOptions={({ route }) => ({
           headerStyle: { backgroundColor: colors.headerBackground },
           headerTintColor: colors.textPrimary,
           headerTitle: '',
           headerLeft: () => <LogoHeaderLeft />,
           headerRight: () => <RPGHeaderRight />,
-          tabBarStyle: { backgroundColor: colors.headerBackground, borderTopColor: colors.border },
-          tabBarActiveTintColor: colors.primary,
-          tabBarInactiveTintColor: colors.textMuted,
-          tabBarIcon: ({ color, size }) => {
-            const tab = tabs.find(t => t.name === route.name);
-            return <Ionicons name={tab.icon} size={size} color={color} />;
-          },
+          tabBarStyle: { display: 'none' }, // HIDE DEFAULT TAB BAR
         })}
       >
         {tabs.map(t => (
@@ -344,4 +339,130 @@ const headerStyles = StyleSheet.create({
     fontWeight: '800',
     fontSize: 12,
   },
+});
+
+function FloatingNav({ tabs, state, navigation }) {
+  const { colors, isDark } = useTheme();
+  const [expanded, setExpanded] = React.useState(false);
+  
+  const currentRouteName = state?.routes[state.index]?.name || 'Tasks';
+
+  const toggle = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setExpanded(!expanded);
+  };
+
+  const goTo = (name) => {
+    navigation.navigate(name);
+    if (expanded) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setExpanded(false);
+    }
+  };
+
+  return (
+    <View style={navStyles.container} pointerEvents="box-none">
+      <TouchableOpacity 
+        activeOpacity={0.9}
+        onPress={expanded ? undefined : toggle}
+        style={[
+          navStyles.pill,
+          { 
+            backgroundColor: isDark ? 'rgba(30, 41, 59, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+            borderColor: colors.border,
+            width: expanded ? '90%' : 60,
+          }
+        ]}
+      >
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[navStyles.scrollContent, expanded && { width: '100%', justifyContent: 'space-around' }]}
+          scrollEnabled={expanded}
+        >
+          {expanded ? (
+            tabs.map(t => {
+              const active = currentRouteName === t.name;
+              return (
+                <TouchableOpacity 
+                  key={t.name} 
+                  onPress={() => goTo(t.name)}
+                  style={[navStyles.iconWrap, active && { backgroundColor: colors.primary + '20', borderRadius: 12 }]}
+                >
+                  <Ionicons name={t.icon} size={24} color={active ? colors.primary : colors.textMuted} />
+                  <Text style={[navStyles.iconLabel, { color: active ? colors.primary : colors.textMuted }]}>{t.name}</Text>
+                </TouchableOpacity>
+              );
+            })
+          ) : (
+            <View style={navStyles.minimized}>
+              <Ionicons 
+                name={tabs.find(t => t.name === currentRouteName)?.icon || 'menu'} 
+                size={28} 
+                color={colors.primary} 
+              />
+            </View>
+          )}
+        </ScrollView>
+        
+        {expanded && (
+          <TouchableOpacity onPress={toggle} style={navStyles.closeBtn}>
+            <Ionicons name="chevron-down" size={20} color={colors.textMuted} />
+          </TouchableOpacity>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const navStyles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    bottom: 30,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  pill: {
+    height: 60,
+    borderRadius: 30,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    // Shadow
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
+    overflow: 'hidden',
+  },
+  scrollContent: {
+    alignItems: 'center',
+    paddingHorizontal: 8,
+  },
+  minimized: {
+    width: 50,
+    height: 50,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    minWidth: 60,
+  },
+  iconLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  closeBtn: {
+    padding: 10,
+    marginRight: 4,
+  }
 });

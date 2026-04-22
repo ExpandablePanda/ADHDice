@@ -84,16 +84,21 @@ function Chip({ position, width, height, color, maskTexture, onPress, textColor,
       {/* Background mesh */}
       <mesh position={[0, 0, 0.005]}>
         <shapeGeometry args={[shape]} />
-        <meshBasicMaterial color={finalBgColor} />
+        <meshStandardMaterial 
+          color={finalBgColor} 
+          roughness={0.6}
+          metalness={0.1}
+        />
       </mesh>
       {/* Text mesh */}
       <mesh position={[0, 0, 0.01]}>
         <planeGeometry args={[width, height]} />
-        <meshBasicMaterial
+        <meshStandardMaterial
           color={finalTextColor}
           alphaMap={maskTexture}
-          transparent
+          transparent={false}
           alphaTest={0.5}
+          roughness={0.5}
         />
       </mesh>
     </group>
@@ -108,6 +113,8 @@ export default function TaskCard3D({
   cardScale = 1,
   isFlipped = false,
   spinning = false,
+  interactive = true,
+  skipInternalAnimation = false,
   onPress,
   onFlip,
   onHistoryPress,
@@ -123,7 +130,18 @@ export default function TaskCard3D({
   const iconTexture  = useTexture(logoUri ?? require('../../assets/logo.png'));
 
   // ── Task data ─────────────────────────────────────────────────────────────
-  const title       = task?.title  || 'Untitled';
+  const rawTitle      = (task?.title || 'Untitled').toUpperCase();
+  const titleWords    = rawTitle.split(' ');
+  const isMultiLine   = titleWords.length > 3 || rawTitle.length > 12;
+  
+  let line1 = rawTitle;
+  let line2 = '';
+
+  if (isMultiLine) {
+    const mid = Math.ceil(titleWords.length / 2);
+    line1 = titleWords.slice(0, mid).join(' ');
+    line2 = titleWords.slice(mid).join(' ');
+  }
   const taskId      = task?.id     || '—';
   const status      = task?.status || 'pending';
   const energy      = task?.energy ?? null;
@@ -160,7 +178,8 @@ export default function TaskCard3D({
 
   // ── Textures (all unconditional — no conditional hooks) ───────────────────
   const statusMaskTex  = useLoader(THREE.TextureLoader, maskUrl(statusLabel.toUpperCase(), 400, 100));
-  const titleMaskTex   = useLoader(THREE.TextureLoader, maskUrl(title, 800, 300));
+  const title1MaskTex  = useLoader(THREE.TextureLoader, maskUrl(line1, 800, 200));
+  const title2MaskTex  = useLoader(THREE.TextureLoader, line2 ? maskUrl(line2, 800, 200) : DUMMY_URL);
   const historyMaskTex = useLoader(THREE.TextureLoader, maskUrl('HISTORY', 300, 100));
   const dueMaskTex     = useLoader(THREE.TextureLoader, dueDateLabel  ? maskUrl(dueDateLabel, 500, 100)  : DUMMY_URL);
   const energyMaskTex  = useLoader(THREE.TextureLoader, energyLabel   ? maskUrl(energyLabel, 300, 100)   : DUMMY_URL);
@@ -170,12 +189,12 @@ export default function TaskCard3D({
   const tagMaskTextures = useLoader(THREE.TextureLoader, tagUrls);
 
   useMemo(() => {
-    const all = [statusMaskTex, titleMaskTex, historyMaskTex,
+    const all = [statusMaskTex, title1MaskTex, title2MaskTex, historyMaskTex,
                  dueMaskTex, energyMaskTex, streakMaskTex, ...tagMaskTextures];
     all.forEach(t => {
       if (t) { t.premultiplyAlpha = false; t.generateMipmaps = false; t.needsUpdate = true; }
     });
-  }, [statusMaskTex, titleMaskTex, historyMaskTex,
+  }, [statusMaskTex, title1MaskTex, title2MaskTex, historyMaskTex,
       dueMaskTex, energyMaskTex, streakMaskTex, tagMaskTextures]);
 
   // ── Clone card meshes from shared GLB ────────────────────────────────────
@@ -187,8 +206,21 @@ export default function TaskCard3D({
       if (child.name === 'base_card1_Guzma_0')    front = child.clone();
       if (child.name === 'base_card2_Lusamine_0') back  = child.clone();
     });
-    if (front) front.material = new THREE.MeshBasicMaterial({ color: statusColor });
-    if (back)  back.material  = new THREE.MeshBasicMaterial({ color: '#ffffff' });
+    if (front) front.material = new THREE.MeshPhysicalMaterial({ 
+      color: statusColor,
+      metalness: 0,
+      roughness: 0.4,
+      clearcoat: 1.0,
+      clearcoatRoughness: 0.1,
+      reflectivity: 0.5
+    });
+    if (back)  back.material  = new THREE.MeshPhysicalMaterial({ 
+      color: '#ffffff',
+      metalness: 0,
+      roughness: 0.3,
+      clearcoat: 0.8,
+      clearcoatRoughness: 0.2
+    });
     return { frontCard: front, backCard: back };
   }, [scene]); // clone once; color updated below
 
@@ -197,7 +229,7 @@ export default function TaskCard3D({
 
   // ── Flip animation ────────────────────────────────────────────────────────
   useFrame((_, delta) => {
-    if (!groupRef.current) return;
+    if (!groupRef.current || skipInternalAnimation) return;
     if (spinning) spinRef.current += delta * 0.4;
     const flipTarget = isFlipped ? Math.PI : 0;
     flipRef.current = THREE.MathUtils.lerp(flipRef.current, flipTarget, Math.min(1, delta * 6));
@@ -224,10 +256,10 @@ export default function TaskCard3D({
     <group ref={groupRef} position={position} scale={[cardScale, cardScale, cardScale]}>
 
       {/* ── FRONT FACE ───────────────────────────────────────────────────── */}
-      <group position={[0, 0, 0.005]}>
+      <group position={[0, 0, 0.01]}>
 
         {/* Card base — click anywhere on card body opens detail */}
-        <primitive object={frontCard} scale={1.4} onClick={onPress} />
+        <primitive object={frontCard} scale={1.4} onClick={interactive ? onPress : undefined} />
 
         {/* Scaled front face content with corner spacing */}
         <group scale={[1.6, 1.6, 1]}>
@@ -239,7 +271,7 @@ export default function TaskCard3D({
             backgroundColor={lightenColor(statusInfo.color, 0.9)}
             textColor={statusInfo.color}
             maskTexture={statusMaskTex}
-            onPress={() => onConfirmStatus && onConfirmStatus(task.id, nextStatus)}
+            onPress={interactive ? () => onConfirmStatus && onConfirmStatus(task.id, nextStatus) : undefined}
           />
           {energyLabel && (
             <Chip
@@ -274,26 +306,29 @@ export default function TaskCard3D({
             />
           )}
 
-          {/* CENTER: Task title */}
-          <mesh position={[0, 0.08, 0.12]}>
-            <planeGeometry args={[1.6, 0.55]} />
-            <meshBasicMaterial
-              color="#ffffff"
-              alphaMap={titleMaskTex}
-              transparent
-              alphaTest={0.5}
-            />
-          </mesh>
+          {/* CENTER: Task title (multi-line support) */}
+          <group position={[0, 0.2, 0.12]}>
+            <mesh position={[0, line2 ? 0.2 : 0, 0]}>
+              <planeGeometry args={[2.0, 0.5]} />
+              <meshStandardMaterial color="#ffffff" alphaMap={title1MaskTex} transparent={false} alphaTest={0.5} roughness={0.3} />
+            </mesh>
+            {line2 && (
+              <mesh position={[0, -0.2, 0]}>
+                <planeGeometry args={[2.0, 0.5]} />
+                <meshStandardMaterial color="#ffffff" alphaMap={title2MaskTex} transparent={false} alphaTest={0.5} roughness={0.3} />
+              </mesh>
+            )}
+          </group>
 
           {/* History chip — tappable, opens history modal */}
           <Chip
             position={[0, -0.8, 0.12]}
-            width={hW} height={0.2} 
+            width={hW} height={0.2}
             borderColor="#94a3b8"
             backgroundColor="#f1f5f9"
             textColor="#475569"
             maskTexture={historyMaskTex}
-            onPress={onHistoryPress}
+            onPress={interactive ? onHistoryPress : undefined}
           />
 
           {/* FOOTER: Tags row */}
@@ -320,18 +355,14 @@ export default function TaskCard3D({
       </group>
 
       {/* ── BACK FACE ────────────────────────────────────────────────────── */}
-      <group position={[0, 0, -0.005]} rotation={[0, Math.PI, 0]}>
+      <group position={[0, 0, -0.01]} rotation={[0, Math.PI, 0]}
+        onClick={(e) => { e.stopPropagation(); onFlip && onFlip(); }}
+      >
         <primitive object={backCard} scale={1.4} />
-        {/* Tap logo to flip back */}
-        <mesh
-          position={[0, 0, 0.05]}
-          onClick={(e) => { e.stopPropagation(); onFlip && onFlip(); }}
-        >
+        <mesh position={[0, 0, 0.05]}>
           <planeGeometry args={[1.1, 0.712]} />
           <meshBasicMaterial map={iconTexture} transparent alphaTest={0.05} color="#ffffff" />
         </mesh>
-
-        {/* REPLACED PINK CIRCLE WITH LOGO - 3.2 UNITS - CENTERED */}
         <mesh position={[0, 0, 0.06]}>
           <planeGeometry args={[3.2, 2.07]} />
           <meshBasicMaterial map={iconTexture} transparent alphaTest={0.05} color="#ffffff" />

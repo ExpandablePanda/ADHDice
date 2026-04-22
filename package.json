@@ -1,6 +1,6 @@
 {
   "name": "adhdice",
-  "version": "5.0.3",
+  "version": "5.0.5",
   "homepage": "https://ExpandablePanda.github.io/ADHDice",
   "main": "index.js",
   "scripts": {

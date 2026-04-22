@@ -1,142 +1,361 @@
-import React, { useRef, useMemo, Suspense } from 'react';
-import { View, PanResponder, useWindowDimensions, Platform } from 'react-native';
+import React, { useRef, useMemo, useState, useCallback, Suspense } from 'react';
+import { View, TouchableOpacity, Text, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { Canvas, useFrame, useThree } from '@react-three/fiber/native';
-import { PerspectiveCamera } from '@react-three/drei/native';
-import { useGLTF } from '@react-three/drei/native';
+import { PerspectiveCamera, ContactShadows, useGLTF } from '@react-three/drei/native';
 import { useAssets } from 'expo-asset';
 import * as THREE from 'three';
 import TaskCard3D from './TaskCard3D';
+import { useTheme } from '../lib/ThemeContext';
+import { Ionicons } from '@expo/vector-icons';
 
-const CARD_FOV = 60;
-const CAMERA_Z = 5;
+const CARD_FOV    = 60;
+const CAMERA_Z    = 5;
+const ANIM_SECS   = 0.5;
+const MAX_STACK   = 5;
 
 const GLB_MODULE  = require('../../assets/playing_cards.glb');
 const LOGO_MODULE = require('../../assets/logo.png');
 
-// ── Inner scene ───────────────────────────────────────────────────────────────
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
-function CardScene({ tasks, rawScrollPx, flippedCards, onOpen, onHistory, onConfirmStatus, onFlipCard, glbUri, logoUri }) {
-  const worldRef = useRef();
+function SceneBackground({ isDark }) {
+  const color1 = isDark ? '#020617' : '#f8fafc';
+  const color2 = isDark ? '#1e1b4b' : '#e2e8f0';
+
+  return (
+    <mesh position={[0, 0, -10]} scale={[50, 50, 1]}>
+      <planeGeometry />
+      <shaderMaterial
+        attach="material"
+        uniforms={{
+          uColor1: { value: new THREE.Color(color1) },
+          uColor2: { value: new THREE.Color(color2) },
+        }}
+        vertexShader={`
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          }
+        `}
+        fragmentShader={`
+          varying vec2 vUv;
+          uniform vec3 uColor1;
+          uniform vec3 uColor2;
+          void main() {
+            float d = distance(vUv, vec2(0.5));
+            gl_FragColor = vec4(mix(uColor2, uColor1, d), 1.0);
+          }
+        `}
+      />
+    </mesh>
+  );
+}
+
+// ── Animates a card between Deck and Active positions ────────────────────────
+
+function MovingCard({ task, state, progress, fromX, toX, cardScale, glbUri, logoUri }) {
+  const groupRef = useRef();
+
+  useFrame(() => {
+    if (!groupRef.current) return;
+    const p = Math.max(0, Math.min(1, progress.current));
+    
+    if (state === 'DRAWING') {
+      // Deck -> Active (Slide right + flip)
+      groupRef.current.position.x = THREE.MathUtils.lerp(fromX, toX, p);
+      groupRef.current.position.z = Math.sin(p * Math.PI) * 1.5 + 0.1; // Arc up
+      groupRef.current.rotation.y = THREE.MathUtils.lerp(Math.PI, Math.PI * 2, p);
+    } else if (state === 'RETURNING') {
+      // Active -> Deck (Flip back + slide left UNDERNEATH)
+      // Use a deeper arc (-1.5 instead of -0.8) to clear the deck
+      const arcZ = -Math.sin(p * Math.PI) * 1.5 - 0.5;
+      groupRef.current.position.x = THREE.MathUtils.lerp(toX, fromX, p);
+      groupRef.current.position.z = arcZ;
+      // Reverse the rotation direction to 'swing' away and under
+      groupRef.current.rotation.y = THREE.MathUtils.lerp(Math.PI * 2, Math.PI * 3, p);
+      // Add a slight tilt to make it look like it's diving under
+      groupRef.current.rotation.z = Math.sin(p * Math.PI) * 0.2;
+    }
+  });
+
+  return (
+    <group ref={groupRef}>
+      <TaskCard3D
+        task={task}
+        position={[0, 0, 0]}
+        cardScale={cardScale}
+        isFlipped={false} // Rotation handled by group
+        spinning={false}
+        interactive={false}
+        skipInternalAnimation
+        glbUri={glbUri}
+        logoUri={logoUri}
+      />
+    </group>
+  );
+}
+
+// ── The 3D scene: Single deck + active card ──────────────────────────────────
+
+function DeckScene({
+  tasks, activeIdx, animState, progress,
+  onDraw, onReturn, onOpen, onHistory, onConfirmStatus,
+  glbUri, logoUri, isDark,
+}) {
   const { viewport } = useThree();
-
-  // Measure actual card mesh width at scale=1
   const { scene: glbScene } = useGLTF(glbUri);
+
   const naturalCardW = useMemo(() => {
     if (!glbScene) return null;
     let mesh = null;
     glbScene.traverse(c => { if (c.isMesh && c.name === 'base_card1_Guzma_0') mesh = c; });
     if (!mesh) return null;
-    const box = new THREE.Box3().setFromObject(mesh);
-    return box.getSize(new THREE.Vector3()).x;
+    return new THREE.Box3().setFromObject(mesh).getSize(new THREE.Vector3()).x;
   }, [glbScene]);
 
-  // Card fills ~65% of viewport height
-  const cardH    = viewport.height * 0.65;
-  const cardW    = cardH / 1.4;
-  const spacing  = cardW * 1.25; // gap between card centers
+  const cardH     = viewport.height * 0.75;
+  const cardW     = cardH / 1.4;
+  const cardScale = naturalCardW ? cardW / (naturalCardW * 1.4) : cardW / 1.44;
+  
+  const deckX     = -cardW * 0.25; // Adjusted right slightly
+  const activeX   = cardW * 0.15;  // Balanced overlap
 
-  const PRIMITIVE_SCALE = 1.4;
-  const cardScale = naturalCardW
-    ? cardW / (naturalCardW * PRIMITIVE_SCALE)
-    : cardW / 1.44;
-
-  // Max horizontal scroll (world units): show last card centered
-  const maxScroll = Math.max(0, (tasks.length - 1) * spacing);
-
-  useFrame(() => {
-    if (!worldRef.current) return;
-    // Swipe left = positive rawScrollPx = world moves left (negative X)
-    const scrolled = Math.max(0, Math.min(maxScroll, rawScrollPx.current / viewport.factor));
-    worldRef.current.position.x = -scrolled;
+  useFrame((state, delta) => {
+    if (animState !== 'IDLE') {
+      progress.current = Math.min(1, progress.current + delta / ANIM_SECS);
+    }
+    
+    // Parallax
+    const targetX = state.pointer.x * 0.3;
+    const targetY = state.pointer.y * 0.15;
+    state.camera.position.x = THREE.MathUtils.lerp(state.camera.position.x, targetX, 0.05);
+    state.camera.position.y = THREE.MathUtils.lerp(state.camera.position.y, targetY, 0.05);
+    state.camera.lookAt(0, 0, 0);
   });
 
+  // Split tasks into Deck vs Active
+  const deckStack = useMemo(() => {
+    const list = [...tasks];
+    if (activeIdx !== null) list.splice(activeIdx, 1);
+    return list.slice(0, MAX_STACK).reverse();
+  }, [tasks, activeIdx]);
+
+  const activeTask = activeIdx !== null ? tasks[activeIdx] : null;
+
   return (
-    <group ref={worldRef}>
-      {tasks.map((task, i) => (
-        <Suspense key={task.id} fallback={null}>
+    <>
+      <SceneBackground isDark={isDark} />
+      <ContactShadows position={[0, -cardH * 0.52, 0]} opacity={0.4} scale={10} blur={2.5} far={2} />
+
+      {/* ── Deck Pile (Face Down) ────────────────────────────────────────── */}
+      <group position={[deckX, 0, 0]}>
+        {deckStack.map((task, i) => {
+          const depth = i * 0.01;
+          const isTop = i === deckStack.length - 1;
+          return (
+            <TaskCard3D
+              key={task.id}
+              task={task}
+              position={[0, -depth * 0.5, depth]}
+              cardScale={cardScale}
+              isFlipped
+              interactive={false}
+              onFlip={isTop && animState === 'IDLE' ? onDraw : undefined}
+              glbUri={glbUri}
+              logoUri={logoUri}
+            />
+          );
+        })}
+      </group>
+
+      {/* ── Active Card (Face Up) ────────────────────────────────────────── */}
+      {activeTask && animState === 'IDLE' && (
+        <group position={[activeX, 0, 0.5]}>
           <TaskCard3D
-            task={task}
-            position={[i * spacing, 0, 0]}
+            task={activeTask}
+            position={[0, 0, 0]}
             cardScale={cardScale}
-            spinning
-            isFlipped={flippedCards ? flippedCards.has(task.id) : false}
-            onPress={() => onOpen && onOpen(task)}
-            onFlip={() => onFlipCard && onFlipCard(task.id)}
-            onHistoryPress={() => onHistory && onHistory(task)}
+            isFlipped={false}
+            interactive
+            onPress={() => onOpen && onOpen(activeTask)}
+            onFlip={onReturn}
+            onHistoryPress={() => onHistory && onHistory(activeTask)}
             onConfirmStatus={onConfirmStatus}
             glbUri={glbUri}
             logoUri={logoUri}
           />
-        </Suspense>
-      ))}
-    </group>
-  );
-}
+        </group>
+      )}
 
-// ── Public component ──────────────────────────────────────────────────────────
-
-export default function CardViewCanvas({
-  tasks = [],
-  flippedCards,
-  onOpen,
-  onHistory,
-  onConfirmStatus,
-  onFlipCard,
-  style,
-}) {
-  const { height } = useWindowDimensions();
-
-  // Preload assets on web so useGLTF gets a real URL, not a numeric module ID
-  const [assets] = useAssets(Platform.OS === 'web' ? [GLB_MODULE, LOGO_MODULE] : []);
-  const glbUri  = Platform.OS === 'web' ? assets?.[0]?.uri : GLB_MODULE;
-  const logoUri = Platform.OS === 'web' ? assets?.[1]?.uri : LOGO_MODULE;
-
-  const rawScrollPx  = useRef(0);
-  const lastScrollPx = useRef(0);
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onStartShouldSetPanResponder: () => true,
-    onMoveShouldSetPanResponder:  () => true,
-    onPanResponderGrant: () => {
-      lastScrollPx.current = rawScrollPx.current;
-    },
-    onPanResponderMove: (_, gs) => {
-      // Swipe left (gs.dx < 0) increases scroll (reveals next cards)
-      rawScrollPx.current = Math.max(0, lastScrollPx.current - gs.dx);
-    },
-  }), []);
-
-  // Don't render until assets are resolved on web
-  if (Platform.OS === 'web' && !glbUri) return null;
-
-  return (
-    <View
-      style={[{ width: '100%', height: height * 0.78 }, style]}
-      {...panResponder.panHandlers}
-    >
-      <Canvas style={{ flex: 1 }} alpha legacy samples={0}>
-        <PerspectiveCamera
-          makeDefault
-          position={[0, 0, CAMERA_Z]}
-          fov={CARD_FOV}
-          near={0.1}
-          far={100}
-        />
-        <ambientLight intensity={1.5} />
-        <directionalLight position={[5, 10, 5]} intensity={1} />
-
-        <CardScene
-          tasks={tasks}
-          rawScrollPx={rawScrollPx}
-          flippedCards={flippedCards}
-          onOpen={onOpen}
-          onHistory={onHistory}
-          onConfirmStatus={onConfirmStatus}
-          onFlipCard={onFlipCard}
+      {/* ── Moving Animation ─────────────────────────────────────────────── */}
+      {activeTask && animState !== 'IDLE' && (
+        <MovingCard
+          task={activeTask}
+          state={animState}
+          progress={progress}
+          fromX={deckX}
+          toX={activeX}
+          cardScale={cardScale}
           glbUri={glbUri}
           logoUri={logoUri}
         />
+      )}
+    </>
+  );
+}
+
+// ── Main Component ────────────────────────────────────────────────────────────
+
+export default function CardViewCanvas({ tasks = [], onOpen, onHistory, onConfirmStatus, style }) {
+  const { isDark } = useTheme();
+  const [assets]   = useAssets(Platform.OS === 'web' ? [GLB_MODULE, LOGO_MODULE] : []);
+  const glbUri     = Platform.OS === 'web' ? assets?.[0]?.uri : GLB_MODULE;
+  const logoUri    = Platform.OS === 'web' ? assets?.[1]?.uri : LOGO_MODULE;
+
+  const [deck, setDeck]           = useState(() => shuffle(tasks));
+  const [activeIdx, setActiveIdx] = useState(null);
+  const [animState, setAnimState] = useState('IDLE');
+  const animProgress = useRef(0);
+  const [pendingNext, setPendingNext] = useState(false);
+
+  const onReturn = useCallback((andDrawNext = false) => {
+    if (animState !== 'IDLE' || activeIdx === null) return;
+    if (andDrawNext) setPendingNext(true);
+    animProgress.current = 0;
+    setAnimState('RETURNING');
+    setTimeout(() => {
+      setDeck(prev => {
+        const next = [...prev];
+        const [removed] = next.splice(activeIdx, 1);
+        next.push(removed);
+        return next;
+      });
+      setActiveIdx(null);
+      setAnimState('IDLE');
+    }, ANIM_SECS * 1000 + 50);
+  }, [animState, activeIdx]);
+
+  const onDraw = useCallback(() => {
+    if (animState !== 'IDLE') return;
+
+    if (activeIdx !== null) {
+      onReturn(true);
+      return;
+    }
+
+    animProgress.current = 0;
+    setActiveIdx(0);
+    setAnimState('DRAWING');
+    setTimeout(() => {
+      setAnimState('IDLE');
+    }, ANIM_SECS * 1000 + 50);
+  }, [animState, activeIdx, onReturn]);
+
+  // Handle auto-cycle chaining
+  React.useEffect(() => {
+    if (animState === 'IDLE' && activeIdx === null && pendingNext) {
+      setPendingNext(false);
+      onDraw();
+    }
+  }, [animState, activeIdx, pendingNext, onDraw]);
+
+  const onReshuffle = useCallback(() => {
+    if (animState !== 'IDLE') return;
+    setDeck(shuffle([...tasks]));
+    setActiveIdx(null);
+  }, [tasks, animState]);
+
+  if (Platform.OS === 'web' && !glbUri) return null;
+
+  return (
+    <View style={[{ height: 540, paddingVertical: 20, backgroundColor: isDark ? '#020617' : '#f8fafc' }, style]}>
+      <Canvas style={{ flex: 1 }} alpha legacy samples={0}>
+        <PerspectiveCamera makeDefault position={[0, 0, CAMERA_Z]} fov={CARD_FOV} />
+        <ambientLight intensity={isDark ? 0.6 : 1.0} />
+        <spotLight position={[5, 10, 5]} angle={0.25} penumbra={1} intensity={isDark ? 1.5 : 1.0} />
+        <pointLight position={[-5, -5, -5]} intensity={0.5} />
+        
+        <Suspense fallback={null}>
+          <DeckScene
+            tasks={deck}
+            activeIdx={activeIdx}
+            animState={animState}
+            progress={animProgress}
+            onDraw={onDraw}
+            onReturn={onReturn}
+            onOpen={onOpen}
+            onHistory={onHistory}
+            onConfirmStatus={onConfirmStatus}
+            glbUri={glbUri}
+            logoUri={logoUri}
+            isDark={isDark}
+          />
+        </Suspense>
       </Canvas>
+
+      <View style={styles.floatingBar}>
+        <Text style={styles.progressText}>
+          {activeIdx === null ? deck.length : deck.length - 1} LEFT
+        </Text>
+        <View style={styles.barDivider} />
+        <TouchableOpacity style={styles.actionBtn} onPress={onReshuffle} disabled={animState !== 'IDLE'}>
+          <Ionicons name="shuffle" size={18} color="#fff" />
+          <Text style={styles.actionTxt}>Reshuffle</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  floatingBar: {
+    position: 'absolute',
+    bottom: 30,
+    left: '50%',
+    transform: [{ translateX: -100 }],
+    width: 200,
+    height: 54,
+    backgroundColor: 'rgba(30, 41, 59, 0.85)',
+    borderRadius: 27,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOpacity: 0.3,
+    shadowRadius: 15,
+    elevation: 10,
+  },
+  progressText: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
+    width: 65,
+  },
+  barDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    marginHorizontal: 10,
+  },
+  actionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionTxt: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+});

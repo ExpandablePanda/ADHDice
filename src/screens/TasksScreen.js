@@ -3583,58 +3583,65 @@ export default function TasksScreen() {
         </View>
       )}
 
-      {/* ── Toolbar: view switcher + status chips + shuffle ── */}
       <View style={styles.toolbar}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-          {!overstimulated && (
-            <View style={styles.viewToggle}>
-              {VIEWS.map(v => (
-                <TouchableOpacity
-                  key={v.key}
-                  style={[styles.viewBtn, view === v.key && styles.viewBtnActive]}
-                  onPress={() => setView(v.key)}
-                >
-                  <Ionicons name={v.icon} size={17} color={view === v.key ? '#6366f1' : '#9ca3af'} />
-                </TouchableOpacity>
-              ))}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          contentContainerStyle={{ paddingHorizontal: 16, height: 48 }}
+        >
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              {!overstimulated && (
+                <View style={styles.viewToggle}>
+                  {VIEWS.map(v => (
+                    <TouchableOpacity
+                      key={v.key}
+                      style={[styles.viewBtn, view === v.key && styles.viewBtnActive]}
+                      onPress={() => setView(v.key)}
+                    >
+                      <Ionicons name={v.icon} size={17} color={view === v.key ? '#6366f1' : '#9ca3af'} />
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSearch(s => !s)}>
+                <Ionicons name="search-outline" size={19} color={showSearch ? '#6366f1' : '#6b7280'} />
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.iconBtn, selectionMode && { backgroundColor: '#6366f120', borderRadius: 8 }]} 
+                onPress={() => {
+                  if (selectionMode) clearSelection();
+                  else setSelectionMode(true);
+                }}
+              >
+                <Ionicons name={selectionMode ? "checkmark-circle" : "list-outline"} size={20} color={selectionMode ? '#6366f1' : '#6b7280'} />
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.iconBtn} onPress={() => setImportVisible(true)}>
+                <Ionicons name="download-outline" size={19} color="#6b7280" />
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.addBtn, { paddingHorizontal: 12, height: 32 }]} onPress={() => setEditingTask(BLANK())}>
+                <Ionicons name="add" size={18} color="#fff" />
+                <Text style={[styles.addBtnText, { fontSize: 13 }]}>New</Text>
+              </TouchableOpacity>
             </View>
-          )}
 
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setShowSearch(s => !s)}>
-            <Ionicons name="search-outline" size={19} color={showSearch ? '#6366f1' : '#6b7280'} />
-          </TouchableOpacity>
-          <TouchableOpacity 
-            style={[styles.iconBtn, selectionMode && { backgroundColor: '#6366f120', borderRadius: 8 }]} 
-            onPress={() => {
-              if (selectionMode) clearSelection();
-              else setSelectionMode(true);
-            }}
-          >
-            <Ionicons name={selectionMode ? "checkmark-circle" : "list-outline"} size={20} color={selectionMode ? '#6366f1' : '#6b7280'} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn} onPress={() => setImportVisible(true)}>
-            <Ionicons name="download-outline" size={19} color="#6b7280" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.addBtn, { paddingHorizontal: 12, height: 32 }]} onPress={() => setEditingTask(BLANK())}>
-            <Ionicons name="add" size={18} color="#fff" />
-            <Text style={[styles.addBtnText, { fontSize: 13 }]}>New</Text>
-          </TouchableOpacity>
-        </View>
-
-        {view === 'cards' && filtered.length > 0 && (
-          <View style={{ flexDirection: 'row', gap: 8 }}>
-            <TouchableOpacity style={styles.shuffleBtn} onPress={triggerShuffle}>
-              <Ionicons name="shuffle" size={15} color="#6366f1" />
-              <Text style={styles.shuffleBtnText}>Shuffle</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.shuffleBtn, allFlipped && { backgroundColor: '#6366f1' }]} onPress={flipAllCards}>
-              <Ionicons name="albums" size={15} color={allFlipped ? '#fff' : '#6366f1'} />
-              <Text style={[styles.shuffleBtnText, allFlipped && { color: '#fff' }]}>
-                {allFlipped ? 'Reveal All' : 'Flip All'}
-              </Text>
-            </TouchableOpacity>
+            {view === 'cards' && filtered.length > 0 && (
+              <View style={{ flexDirection: 'row', gap: 8, paddingLeft: 10 }}>
+                <TouchableOpacity style={styles.shuffleBtn} onPress={triggerShuffle}>
+                  <Ionicons name="shuffle" size={15} color="#6366f1" />
+                  <Text style={styles.shuffleBtnText}>Shuffle</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.shuffleBtn, allFlipped && { backgroundColor: '#6366f1' }]} onPress={flipAllCards}>
+                  <Ionicons name="albums" size={15} color={allFlipped ? '#fff' : '#6366f1'} />
+                  <Text style={[styles.shuffleBtnText, allFlipped && { color: '#fff' }]}>
+                    {allFlipped ? 'Reveal All' : 'Flip All'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
           </View>
-        )}
+        </ScrollView>
       </View>
 
       {/* ── Status filter chips ── */}
@@ -3937,11 +3944,9 @@ export default function TasksScreen() {
           ? <Text style={styles.empty}>No tasks — tap New or import.</Text>
           : <CardViewCanvas
               tasks={filtered}
-              flippedCards={flippedCards}
               onOpen={setEditingTask}
               onHistory={t => setHistoryTask(t.id)}
               onConfirmStatus={confirmStatus}
-              onFlipCard={flipCard}
             />
       )}
 
@@ -4241,7 +4246,7 @@ const styles = StyleSheet.create({
   addBtnText:   { color: '#fff', fontWeight: '600', fontSize: 14 },
 
   // Toolbar
-  toolbar:      { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 6, gap: 10 },
+  toolbar:      { paddingBottom: 6 },
   viewToggle:   { flexDirection: 'row', backgroundColor: '#f3f4f6', borderRadius: 8, padding: 2 },
   viewBtn:      { padding: 7, borderRadius: 6 },
   viewBtnActive:{ backgroundColor: '#fff', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 4, shadowOffset: { width: 0, height: 1 }, elevation: 2 },
