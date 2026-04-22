@@ -153,7 +153,7 @@ export default function NotesScreen() {
   // ── Render ──────────────────────────────────────────────────────────────────
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['left', 'right']}>
       
       {/* Main Header */}
       <View style={styles.header}>
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 8,
     gap: 12,
-    marginBottom: 10,
+    paddingBottom: 100,
   },
   captureBox: {
     flexDirection: 'row',
@@ -464,7 +464,7 @@ const styles = StyleSheet.create({
   },
   tagText: { fontSize: 13, color: '#6b7280', fontWeight: '600' },
 
-  mainScroll: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 100 },
+  mainScroll: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 140 },
   gridContainer: { flexDirection: 'row', gap: 12 },
   gridColumn: { flex: 1, gap: 12 },
 
@@ -484,7 +484,7 @@ const styles = StyleSheet.create({
 
   fab: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 110,
     right: 30,
     width: 60,
     height: 60,

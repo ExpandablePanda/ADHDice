@@ -994,7 +994,7 @@ function PrizePickerModal({ visible, onSelect, onClose }) {
 }
 
 const rampStyles = StyleSheet.create({
-  container: { padding: 20, paddingBottom: 100 },
+  container: { padding: 20, paddingBottom: 140 },
   sectionTitle: { fontSize: 16, fontWeight: '800', color: '#1f2937', marginTop: 24, marginBottom: 12, textTransform: 'uppercase', letterSpacing: 0.5 },
   list: { gap: 8 },
   taskItem: { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 12, backgroundColor: '#fff', borderRadius: 12, borderWidth: 1, borderColor: '#f3f4f6' },
@@ -1135,7 +1135,7 @@ export default function GamesScreen() {
   if (currentGame === 'ramp') return <EnergyRamp onBack={() => setCurrentGame('hub')} colors={colors} tasks={tasks} />;
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['left', 'right']}>
       <ScrollView ref={scrollRef} contentContainerStyle={styles.scrollContent} onScroll={handleScroll} scrollEventThrottle={16}>
         <View style={styles.header}><View style={styles.headerLeft}><Ionicons name="game-controller-outline" size={24} color={colors.primary}/><Text style={styles.headerTitle}>Games Hub</Text></View></View>
         <View style={hubStyles.hubGrid}>
@@ -1172,7 +1172,7 @@ export default function GamesScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1 },
-  scrollContent: { paddingBottom: 60 },
+  scrollContent: { paddingBottom: 100 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8 },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   headerTitle: { fontSize: 24, fontWeight: '700', color: colors.textPrimary },
@@ -1264,7 +1264,7 @@ const hubStyles = StyleSheet.create({
   breathCircle: { width: 140, height: 140, borderRadius: 70, borderWidth: 3, position: 'absolute' },
   breathPhase: { fontSize: 24, fontWeight: '800', letterSpacing: 1, marginTop: 20 },
   breathSeconds: { fontSize: 48, fontWeight: '900', color: colors.textPrimary },
-  zenDoneBtn: { position: 'absolute', bottom: 40, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
+  zenDoneBtn: { position: 'absolute', bottom: 110, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
   zenDoneText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   matchGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 20, gap: 10, justifyContent: 'center', marginTop: 20 },
   matchCard: { width: (SCREEN_W - 80) / 4, height: (SCREEN_W - 80) / 4, backgroundColor: '#f3f4f6', borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 4 },

@@ -354,10 +354,6 @@ function FloatingNav({ tabs, state, navigation }) {
 
   const goTo = (name) => {
     navigation.navigate(name);
-    if (expanded) {
-      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-      setExpanded(false);
-    }
   };
 
   return (
@@ -374,15 +370,14 @@ function FloatingNav({ tabs, state, navigation }) {
           }
         ]}
       >
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={[navStyles.scrollContent, expanded && { width: '100%', justifyContent: 'space-around' }]}
-          scrollEnabled={expanded}
-        >
-          {expanded ? (
-            tabs.map(t => {
-              const active = currentRouteName === t.name;
+        {expanded ? (
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={[navStyles.scrollContent, { paddingRight: 20 }]}
+          >
+            {tabs.map(t => {
+              const active = tabs[state?.index || 0]?.name === t.name;
               return (
                 <TouchableOpacity 
                   key={t.name} 
@@ -393,17 +388,17 @@ function FloatingNav({ tabs, state, navigation }) {
                   <Text style={[navStyles.iconLabel, { color: active ? colors.primary : colors.textMuted }]}>{t.name}</Text>
                 </TouchableOpacity>
               );
-            })
-          ) : (
-            <View style={navStyles.minimized}>
-              <Ionicons 
-                name={tabs.find(t => t.name === currentRouteName)?.icon || 'menu'} 
-                size={28} 
-                color={colors.primary} 
-              />
-            </View>
-          )}
-        </ScrollView>
+            })}
+          </ScrollView>
+        ) : (
+          <View style={navStyles.minimized}>
+            <Ionicons 
+              name={tabs[state?.index || 0]?.icon || 'menu'} 
+              size={28} 
+              color={colors.primary} 
+            />
+          </View>
+        )}
         
         {expanded && (
           <TouchableOpacity onPress={toggle} style={navStyles.closeBtn}>
@@ -430,7 +425,8 @@ const navStyles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 4,
+    justifyContent: 'center', // CENTER THE MINIMIZED CONTENT
+    paddingHorizontal: 0,
     // Shadow
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
@@ -441,11 +437,11 @@ const navStyles = StyleSheet.create({
   },
   scrollContent: {
     alignItems: 'center',
-    paddingHorizontal: 8,
+    justifyContent: 'center',
   },
   minimized: {
-    width: 50,
-    height: 50,
+    width: 58,
+    height: 58,
     alignItems: 'center',
     justifyContent: 'center',
   },

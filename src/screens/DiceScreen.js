@@ -830,7 +830,7 @@ export default function DiceScreen() {
   });
 
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right']}>
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[styles.scrollContent, Platform.OS === 'web' && { maxWidth: 600, alignSelf: 'center', width: '100%' }]} 
@@ -1374,7 +1374,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   scrollContent: {
-    paddingBottom: 60,
+    paddingBottom: 100,
   },
 
   // Header
@@ -1626,7 +1626,7 @@ const styles = StyleSheet.create({
   },
   managerBody: {
     padding: 20,
-    paddingBottom: 60,
+    paddingBottom: 100,
     gap: 12,
   },
 

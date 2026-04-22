@@ -3469,11 +3469,11 @@ export default function TasksScreen() {
   const isWeb = Platform.OS === 'web';
 
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right']}>
       <ScrollView 
         ref={listRef}
         style={{ flex: 1 }} 
-        contentContainerStyle={{ flexGrow: 1 }} 
+        contentContainerStyle={{ flexGrow: 1, paddingBottom: 100 }} 
         onScroll={handleScroll} 
         scrollEventThrottle={16}
       >
@@ -4198,7 +4198,7 @@ const styles = StyleSheet.create({
   },
   floatingBankedChip: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 110,
     alignSelf: 'center',
     backgroundColor: '#6366f1',
     flexDirection: 'row',
@@ -4255,7 +4255,7 @@ const styles = StyleSheet.create({
   divider:      { height: 1, backgroundColor: '#f3f4f6' },
 
   // List view
-  list:         { paddingBottom: 40 },
+  list:         { paddingBottom: 120 },
   empty:        { textAlign: 'center', color: '#9ca3af', marginTop: 60, fontSize: 15 },
   sectionHeader:{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingTop: 20, paddingBottom: 6, gap: 8 },
   sectionDot:   { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
@@ -4277,9 +4277,9 @@ const styles = StyleSheet.create({
   metaChipText: { fontSize: 11, color: '#6b7280', fontWeight: '500' },
 
   // Card view — poker card proportions (2.5 : 3.5 ratio)
-  cardList:        { padding: 14, paddingBottom: 40 },
+  cardList:        { padding: 14, paddingBottom: 120 },
   cardRow:         { gap: 12, marginBottom: 12 },
-  cardGrid:        { flexDirection: 'row', flexWrap: 'wrap', padding: 14, paddingBottom: 40, gap: 12 },
+  cardGrid:        { flexDirection: 'row', flexWrap: 'wrap', padding: 14, paddingBottom: 120, gap: 12 },
   cardBack:        { backgroundColor: '#ffffff', borderColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center', backfaceVisibility: 'hidden' },
   card:            { width: CARD_W, height: CARD_H, backgroundColor: '#fff', borderRadius: 14, borderWidth: 2, padding: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 5, justifyContent: 'space-between', backfaceVisibility: 'hidden' },
   cardCorner:      { flexDirection: 'row', alignItems: 'center', gap: 8 },
@@ -4299,7 +4299,7 @@ const styles = StyleSheet.create({
   detailScreen:     { flex: 1, backgroundColor: '#fff' },
   detailHeader:     { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 8, paddingTop: Platform.OS === 'ios' ? 8 : 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6', position: 'relative', zIndex: 10, elevation: 4, backgroundColor: '#fff' },
   detailHeaderTitle:{ fontSize: 17, fontWeight: '600', color: '#111827' },
-  detailBody:       { padding: 20, gap: 4, paddingBottom: 120 },
+  detailBody:       { padding: 20, gap: 4, paddingBottom: 160 },
   titleInput:       { fontSize: 22, fontWeight: '600', color: '#111827', paddingVertical: 8, marginBottom: 0, borderBottomWidth: 2, borderBottomColor: '#6366f1' },
   autocompleteDrop: { backgroundColor: '#fff', borderWidth: 1, borderColor: '#e5e7eb', borderRadius: 10, marginTop: 4, marginBottom: 8, overflow: 'hidden', shadowColor: '#000', shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 3 },
   autocompleteItem: { paddingVertical: 10, paddingHorizontal: 14, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' },
@@ -4501,7 +4501,7 @@ const styles = StyleSheet.create({
   // Bulk Actions
   bulkActionBar: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 110,
     left: 20,
     right: 20,
     backgroundColor: 'rgba(255, 255, 255, 0.9)',

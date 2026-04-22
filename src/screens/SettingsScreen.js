@@ -154,7 +154,7 @@ export default function SettingsScreen() {
   // Dynamic Styles
   const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
-    scrollPad: { padding: 20, paddingBottom: 60 },
+    scrollPad: { padding: 20, paddingBottom: 100 },
     sectionLabel: { fontSize: 14, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12, marginTop: 24 },
     firstSection: { marginTop: 0 },
     card: { backgroundColor: colors.surface, borderRadius: 16, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },

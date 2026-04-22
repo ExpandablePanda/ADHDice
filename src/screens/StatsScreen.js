@@ -231,7 +231,7 @@ export default function StatsScreen() {
   if (!loaded) return null;
 
   return (
-    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={[styles.screen, { backgroundColor: colors.background }]} edges={['left', 'right']}>
       <ScrollView 
         ref={scrollRef} 
         contentContainerStyle={styles.scrollContent} 

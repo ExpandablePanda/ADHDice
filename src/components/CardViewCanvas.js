@@ -318,7 +318,7 @@ export default function CardViewCanvas({ tasks = [], onOpen, onHistory, onConfir
 const styles = StyleSheet.create({
   floatingBar: {
     position: 'absolute',
-    bottom: 30,
+    bottom: 110,
     left: '50%',
     transform: [{ translateX: -100 }],
     width: 200,

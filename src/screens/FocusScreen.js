@@ -639,7 +639,7 @@ function CategoryManagerModal({ visible, categories, onClose, onSave }) {
           </TouchableOpacity>
         </View>
         <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-          <ScrollView contentContainerStyle={[styles.modalBody, { paddingBottom: 120 }]} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={[styles.modalBody, { paddingBottom: 140 }]} keyboardShouldPersistTaps="handled">
             {drafts.map((cat, idx) => (
               <View key={cat.key || idx} style={{ marginBottom: 20, padding: 12, backgroundColor: '#f9fafb', borderRadius: 14, borderWidth: 1, borderColor: '#e5e7eb' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 }}>
@@ -1435,7 +1435,7 @@ export default function FocusScreen() {
   const weekStats = getTimeSummary(entries.filter(e => new Date(e.date) >= weekStart));
 
   return (
-    <SafeAreaView style={styles.screen} edges={['bottom', 'left', 'right']}>
+    <SafeAreaView style={styles.screen} edges={['left', 'right']}>
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={styles.scrollContent}
@@ -2084,7 +2084,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.background,
   },
   scrollContent: {
-    paddingBottom: 60,
+    paddingBottom: 100,
   },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20, paddingTop: Platform.OS === 'ios' ? 12 : 20, paddingBottom: 8, marginBottom: 12 },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },
