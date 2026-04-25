@@ -16,7 +16,7 @@ export default function SettingsScreen() {
   const { setTasks } = useTasks();
   const { isDark, toggleTheme, colors } = useTheme();
   const { logout, user, storagePrefix } = useProfile();
-  const { dayStartTime, updateSettings } = useSettings();
+  const { dayStartTime, resetSubtasksOnParentReset, updateSettings } = useSettings();
   const [exportedData, setExportData] = useState('');
   const [showImport, setShowImport] = useState(false);
   const [importDataText, setImportDataText] = useState('');
@@ -237,6 +237,22 @@ export default function SettingsScreen() {
                 ))}
               </View>
             </View>
+          </View>
+
+          <View style={[styles.cardRow, styles.cardRowLast]}>
+            <View style={[styles.iconBox, { backgroundColor: '#f5f3ff' }]}>
+              <Ionicons name="list-outline" size={20} color="#8b5cf6" />
+            </View>
+            <View style={styles.rowBody}>
+              <Text style={styles.rowTitle}>Reset Subtasks</Text>
+              <Text style={styles.rowDesc}>Return subtasks to 'Upcoming' when parent resets.</Text>
+            </View>
+            <Switch
+              value={resetSubtasksOnParentReset}
+              onValueChange={(val) => updateSettings({ resetSubtasksOnParentReset: val })}
+              trackColor={{ false: colors.border, true: colors.primary }}
+              thumbColor={Platform.OS === 'ios' ? '#fff' : (resetSubtasksOnParentReset ? colors.primary : '#f4f3f4')}
+            />
           </View>
         </View>
 

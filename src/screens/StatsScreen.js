@@ -68,7 +68,7 @@ function SectionHeader({ title, icon, color }) {
 export default function StatsScreen() {
   const { colors } = useTheme();
   const { taskHistory } = useTasks();
-  const { economy } = useEconomy();
+  const { economy, updateDailyRecord } = useEconomy();
   
   const { entries: focusEntries } = useFocus();
   
@@ -96,6 +96,10 @@ export default function StatsScreen() {
     // Total Tasks (Done or I Did All I Could)
     const successHistory = taskHistory.filter(h => h.status === 'done' || h.status === 'did_my_best');
     const totalTasks = successHistory.length;
+    
+    const tasksToday = successHistory.filter(h => new Date(h.timestamp).getTime() >= todayStart).length;
+    const tasksThisWeek = successHistory.filter(h => new Date(h.timestamp).getTime() >= todayStart - (7 * 86400000)).length;
+    const tasksThisMonth = successHistory.filter(h => new Date(h.timestamp).getTime() >= todayStart - (30 * 86400000)).length;
 
     // Consistency (Active days)
     const activeDates = new Set([
@@ -103,13 +107,22 @@ export default function StatsScreen() {
       ...taskHistory.map(h => new Date(h.timestamp).toDateString())
     ]);
     
+    // Auto-update personal best
+    if (tasksToday > (economy.dailyRecord || 0)) {
+      setTimeout(() => updateDailyRecord(tasksToday), 0);
+    }
+    
     return {
       totalFocus: fmtDuration(totalFocusMinutes),
       totalTasks,
+      tasksToday,
+      tasksThisWeek,
+      tasksThisMonth,
       streak: economy.activeStreak || 0,
-      activeDays: activeDates.size
+      activeDays: activeDates.size,
+      dailyRecord: economy.dailyRecord || 0
     };
-  }, [focusEntries, taskHistory, economy.activeStreak]);
+  }, [focusEntries, taskHistory, economy.activeStreak, economy.dailyRecord, updateDailyRecord]);
 
   // Hourly Peak Chart Data
   const hourlyData = useMemo(() => {
@@ -266,6 +279,27 @@ export default function StatsScreen() {
 
         {/* Hero Metrics */}
         <View style={styles.heroGrid}>
+            <StatCard 
+                title="Today" 
+                value={stats.tasksToday} 
+                sub={stats.tasksToday > stats.dailyRecord ? "⭐ NEW RECORD!" : `Best: ${stats.dailyRecord}`}
+                icon="today-outline" 
+                color="#f59e0b" 
+            />
+            <StatCard 
+                title="This Week" 
+                value={stats.tasksThisWeek} 
+                sub="Last 7 days"
+                icon="calendar-outline" 
+                color="#3b82f6" 
+            />
+            <StatCard 
+                title="This Month" 
+                value={stats.tasksThisMonth} 
+                sub="Last 30 days"
+                icon="pie-chart-outline" 
+                color="#8b5cf6" 
+            />
             <StatCard 
                 title="Focus Time" 
                 value={stats.totalFocus} 

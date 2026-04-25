@@ -63,7 +63,7 @@ export function isSameDay(d1, d2) {
   return getLocalDateKey(d1) === getLocalDateKey(d2);
 }
 
-export function calculateTaskMissedStreak(history = {}, dayStartTime = 6) {
+export function calculateTaskMissedStreak(history = {}, dayStartTime = 6, isRecurring = true) {
   const today = new Date();
   if (today.getHours() < dayStartTime) {
     today.setDate(today.getDate() - 1);
@@ -79,6 +79,9 @@ export function calculateTaskMissedStreak(history = {}, dayStartTime = 6) {
     
     if (i === 0 && !s) continue;
 
+    // Disconnect streak for one-offs if it's not the day they were active
+    if (!isRecurring && i > 0 && streak > 0) break;
+
     if (s === 'missed') {
       streak++;
     } else {
@@ -88,7 +91,7 @@ export function calculateTaskMissedStreak(history = {}, dayStartTime = 6) {
   return streak;
 }
 
-export function calculateTaskStreak(history = {}, dayStartTime = 6) {
+export function calculateTaskStreak(history = {}, dayStartTime = 6, isRecurring = true) {
   const today = new Date();
   if (today.getHours() < dayStartTime) {
     today.setDate(today.getDate() - 1);
@@ -104,6 +107,9 @@ export function calculateTaskStreak(history = {}, dayStartTime = 6) {
     
     if (i === 0 && !s) continue;
 
+    // Disconnect streak for one-offs if it's not the day they were active
+    if (!isRecurring && i > 0 && streak > 0) break;
+
     if (s === 'done' || s === 'did_my_best') {
       streak++;
     } else {
@@ -111,6 +117,29 @@ export function calculateTaskStreak(history = {}, dayStartTime = 6) {
     }
   }
   return streak;
+}
+export function calculateBestStreak(history = {}) {
+  let best = 0, current = 0;
+  const keys = Object.keys(history).filter(k => history[k] === 'done' || history[k] === 'did_my_best' || history[k] === 'missed').sort();
+  if (keys.length === 0) return 0;
+
+  const first = new Date(keys[0] + 'T12:00:00');
+  const last = new Date(); 
+  const diff = Math.round((last - first) / 86400000);
+
+  for (let i = 0; i <= diff; i++) {
+    const d = new Date(first);
+    d.setDate(d.getDate() + i);
+    const key = getLocalDateKey(d);
+    const s = history[key];
+    if (s === 'done' || s === 'did_my_best') {
+      current++;
+      if (current > best) best = current;
+    } else {
+      current = 0;
+    }
+  }
+  return best;
 }
 
 // ── Shared Task Helpers ──────────────────────────────────────────────────────
@@ -165,7 +194,8 @@ export function calcNextDueDate(task, dayStartTime = 6) {
 
 export function TasksProvider({ children }) {
   const { storagePrefix, user } = useProfile();
-  const { unlockPrizeByTaskId } = useEconomy();
+  const { dayStartTime, resetSubtasksOnParentReset } = useSettings();
+  const { unlockPrizeByTaskId, addFreeRoll, addBankedReward } = useEconomy();
   const [tasks, setTasks] = useState([]);
   const [taskHistory, setTaskHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
@@ -179,6 +209,7 @@ export function TasksProvider({ children }) {
   const lastLocalChangeRef = useRef(0);
   const isRemoteUpdateRef  = useRef(false);
   const broadcastRef       = useRef(null);
+  const needsImmediateSyncRef = useRef(false);
 
   // Initialize BroadcastChannel for web multi-tab sync
   useEffect(() => {
@@ -235,7 +266,6 @@ export function TasksProvider({ children }) {
                 setBreakTimer(null);
               }
             } else if (parsed && parsed.remainingSeconds > 0) {
-              // Legacy fallback
               setBreakTimer(parsed);
             }
           } catch (e) {}
@@ -253,7 +283,7 @@ export function TasksProvider({ children }) {
       setTasks(initialTasks);
       setTaskHistory(initialHistory);
 
-      // B. Cloud sync (Cloud is the source of truth on startup, but local wins if it's newer)
+      // B. Cloud sync
       if (user) {
         try {
           const { data, error } = await supabase
@@ -264,8 +294,6 @@ export function TasksProvider({ children }) {
 
           if (data?.data) {
             const cloudTs = new Date(data.updated_at).getTime();
-            
-            // Only overwrite if cloud is strictly newer than local
             if (cloudTs > localTs) {
               isRemoteUpdateRef.current = true;
               const cloud = data.data;
@@ -291,7 +319,6 @@ export function TasksProvider({ children }) {
                 }
               }
             } else if (localTs > cloudTs + 2000) {
-              // Local is newer (and by more than 2s to avoid jitter), push local to cloud
               needsImmediateSyncRef.current = true;
             }
           }
@@ -315,9 +342,6 @@ export function TasksProvider({ children }) {
       (payload) => {
         if (payload.new?.data) {
           const remoteTime = new Date(payload.new.updated_at).getTime();
-          
-          // Only apply if the remote change is newer than our last LOCAL change
-          // We allow a small 1s buffer for clock skew
           if (remoteTime > lastLocalChangeRef.current + 1000) {
             isRemoteUpdateRef.current = true;
             if (Array.isArray(payload.new.data)) {
@@ -335,7 +359,6 @@ export function TasksProvider({ children }) {
                   setBreakTimer(null);
                 }
               } else {
-                // If remote says null (or undefined), stop local timer
                 setBreakTimer(null);
               }
               if (payload.new.data.gamesUnlockEndTime !== undefined) {
@@ -350,9 +373,8 @@ export function TasksProvider({ children }) {
     return () => { supabase.removeChannel(channel); };
   }, [user]);
 
-  // Track state in refs for immediate sync access
+  // Track state in refs
   const stateRef = useRef({ tasks, taskHistory, breakTimer, gamesUnlockEndTime });
-  const needsImmediateSyncRef = useRef(false);
 
   useEffect(() => {
     stateRef.current = { tasks, taskHistory, breakTimer, gamesUnlockEndTime };
@@ -364,7 +386,6 @@ export function TasksProvider({ children }) {
     
     const timerToSave = bt ? { ...bt, lastUpdated: Date.now() } : null;
 
-    // Broadcast to other tabs immediately
     if (broadcastRef.current) {
       broadcastRef.current.postMessage({
         type: 'TASKS_UPDATE',
@@ -376,7 +397,6 @@ export function TasksProvider({ children }) {
       });
     }
 
-    // Always save locally
     const now = Date.now();
     await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(t));
     await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(th));
@@ -388,7 +408,6 @@ export function TasksProvider({ children }) {
       await AsyncStorage.removeItem(`${storagePrefix}break_timer`);
     }
 
-    // Push to cloud only when logged in
     if (user) {
       setIsSyncing(true);
       try {
@@ -399,7 +418,6 @@ export function TasksProvider({ children }) {
             data: { tasks: t, history: th, breakTimer: timerToSave, gamesUnlockEndTime: guet },
             updated_at: new Date().toISOString()
           }, { onConflict: 'user_id' });
-
         if (error) throw error;
       } catch (err) {
         console.error('Tasks cloud save failed', err);
@@ -415,11 +433,11 @@ export function TasksProvider({ children }) {
     if (immediate) {
       saveTasksData();
     } else {
-      syncTimeoutRef.current = setTimeout(saveTasksData, 500); // Faster sync (500ms)
+      syncTimeoutRef.current = setTimeout(saveTasksData, 500);
     }
   }, [saveTasksData]);
 
-  // 2. Save Data (Auto-debounced for general state changes)
+  // 2. Save Data effect
   useEffect(() => {
     if (!loaded) return;
     if (isRemoteUpdateRef.current) {
@@ -428,12 +446,11 @@ export function TasksProvider({ children }) {
     }
     lastLocalChangeRef.current = Date.now();
     
-    // Check if any action requested an immediate sync (e.g., timer start/stop)
     if (needsImmediateSyncRef.current) {
       needsImmediateSyncRef.current = false;
       triggerTasksSync(true);
     } else {
-      triggerTasksSync(false); // Debounce by default
+      triggerTasksSync(false);
     }
 
     const handleUnload = () => saveTasksData();
@@ -457,24 +474,13 @@ export function TasksProvider({ children }) {
   }, [tasks, taskHistory, breakTimer, gamesUnlockEndTime, loaded, user, storagePrefix, triggerTasksSync, saveTasksData]);
 
   // 3. Day-Start Transition Logic
-  const { dayStartTime } = useSettings();
   useEffect(() => {
     if (!loaded) return;
 
     function processTransitions() {
       const now = new Date();
       const hour = now.getHours();
-      
-      // Calculate keys based on Day Start logic
-      // If hour < dayStartTime, "today" is actually yesterday calendar-wise.
-      // The "active day" that just ended is "day before yesterday".
-      // But for marking MISSED tasks from the day that just passed:
-      // If we are at 1 AM (and dayStartTime is 6), the "active day" is still today's calendar date - 1.
-      // We only want to close the book on that day when we hit 6 AM.
-      
       const appTodayKey = getAppDayKey(dayStartTime);
-      
-      // Calendar-wise yesterday
       const yesterday = new Date(now);
       yesterday.setDate(yesterday.getDate() - 1);
       const yesterdayKey = getLocalDateKey(yesterday);
@@ -484,10 +490,9 @@ export function TasksProvider({ children }) {
         let newTask = { ...t };
         const hist = t.statusHistory || {};
         const lowFreq = t.frequency?.toLowerCase() || '';
+        const isRecurring = !!t.frequency;
         
         // A. Catch missed tasks from yesterday calendar-date
-        // ONLY if we have hit the dayStartTime. 
-        // If it's 1 AM, we shouldn't be auto-marking yesterday as missed yet.
         if (hour >= dayStartTime && !hist[yesterdayKey]) {
           const wasDaily = lowFreq === 'daily';
           const normalizedDue = normalizeDateKey(t.dueDate);
@@ -497,27 +502,33 @@ export function TasksProvider({ children }) {
           if (wasDaily || wasWeeklyToday || wasDueYesterday) {
              const updatedHist = { ...hist, [yesterdayKey]: 'missed' };
              newTask.statusHistory = updatedHist;
-             newTask.streak = calculateTaskStreak(updatedHist, dayStartTime);
+             newTask.status = 'missed'; 
+             newTask.streak = calculateTaskStreak(updatedHist, dayStartTime, isRecurring);
              changed = true;
           }
         }
 
-        // B. 6 AM (or dayStartTime) transition for today
+        // B. Persistence for MISSED tasks
+        if (hour >= dayStartTime && !hist[appTodayKey]) {
+          const wasMissedYesterday = hist[yesterdayKey] === 'missed';
+          if (wasMissedYesterday && newTask.status === 'missed') {
+            const updatedHist = { ...hist, [appTodayKey]: 'missed' };
+            newTask.statusHistory = updatedHist;
+            changed = true;
+          }
+        }
+
+        // C. Auto-activate upcoming tasks
         if (hour >= dayStartTime) {
           if (newTask.status === 'upcoming') {
-            const isDoneToday = hist[appTodayKey] === 'done' || hist[appTodayKey] === 'did_my_best';
-            
-            // Check if it's due today by schedule
+            const histVal = hist[appTodayKey];
+            const isHandledToday = histVal === 'done' || histVal === 'did_my_best' || histVal === 'missed';
             const isDaily = lowFreq === 'daily';
             const isWeeklyToday = lowFreq === 'weekly' && (t.weeklyMode === 'fixed_day' || !t.weeklyMode) && t.weeklyDay === now.getDay();
-            
             const normalizedDue = normalizeDateKey(t.dueDate);
-            const isDueByDate = normalizedDue && normalizedDue <= appTodayKey;
-
-            // Only auto-activate if it matches a schedule OR an explicit due date
-            const isDueToday = isDaily || isWeeklyToday || isDueByDate;
+            const isDueToday = isDaily || isWeeklyToday || (normalizedDue && normalizedDue <= appTodayKey);
             
-            if (isDueToday && !isDoneToday) {
+            if (isDueToday && !isHandledToday) {
                newTask.status = 'pending';
                newTask.subtasks = mapSubtasks(t.subtasks || [], s => {
                  if (s.status === 'upcoming') return { ...s, status: 'pending' };
@@ -531,18 +542,15 @@ export function TasksProvider({ children }) {
         return newTask;
       });
 
-      if (changed) {
-        setTasks(nextTasks);
-      }
+      if (changed) setTasks(nextTasks);
     }
 
     processTransitions();
-    // Check every hour
     const interval = setInterval(processTransitions, 1000 * 60 * 60);
     return () => clearInterval(interval);
   }, [loaded, tasks, dayStartTime]);
 
-  const logTaskEvent = (task, status) => {
+  const logTaskEvent = useCallback((task, status) => {
     const event = {
       id: Date.now().toString(),
       taskId: task.id,
@@ -553,7 +561,7 @@ export function TasksProvider({ children }) {
       timestamp: new Date().toISOString()
     };
     setTaskHistory(prev => [event, ...prev].slice(0, 1000));
-  };
+  }, []);
 
   const startBreak = (minutes, prizeInfo = null) => {
     const seconds = Math.floor(minutes * 60);
@@ -586,17 +594,13 @@ export function TasksProvider({ children }) {
     needsImmediateSyncRef.current = true;
     setBreakTimer(prev => {
       if (!prev) return null;
-      // prizeInfo can be { name: string, count: number } or null
       return { ...prev, linkedPrize: prizeInfo };
     });
   };
 
-  // Removed global ticking to allow stable state for persistence.
-  // Remaining time is now calculated by UI components from endTime.
   useEffect(() => {
     if (breakTimer && breakTimer.endTime) {
-      const now = Date.now();
-      if (now >= breakTimer.endTime) {
+      if (Date.now() >= breakTimer.endTime) {
          needsImmediateSyncRef.current = true;
          setBreakTimer(null);
       }
@@ -608,38 +612,50 @@ export function TasksProvider({ children }) {
     const historyKey = dateKey || today;
     const isCompletion = intentStatus === 'done' || intentStatus === 'did_my_best';
 
-    setTasks(prev => prev.map(t => {
-      if (String(t.id) !== String(taskId)) return t;
+    let sideEffects = { recordBroken: false, gamesUnlocked: false, taskTitle: '' };
 
-      const updatedHistory = { ...(t.statusHistory || {}), [historyKey]: intentStatus };
-      const newStreak = calculateTaskStreak(updatedHistory, dayStartTime);
+    setTasks(prev => {
+      const task = prev.find(t => String(t.id) === String(taskId));
+      if (!task) return prev;
+
+      const isRecurring = !!task.frequency;
+      const updatedHistory = { ...(task.statusHistory || {}), [historyKey]: intentStatus };
+      const newStreak = calculateTaskStreak(updatedHistory, dayStartTime, isRecurring);
+      const currentBest = task.bestStreak || 0;
+      const newBest = calculateBestStreak(updatedHistory);
       
+      if (isCompletion && isRecurring && newBest > currentBest) {
+        sideEffects.recordBroken = true;
+        sideEffects.taskTitle = task.title;
+      }
+      if (isCompletion && task.energy === 'low') {
+        sideEffects.gamesUnlocked = true;
+      }
+
       let nextData = {};
-      if (isCompletion && t.frequency) {
-        // RECURRING ROLLOVER
-        const nextDate = calcNextDueDate(t, dayStartTime);
+      if (isCompletion && isRecurring) {
+        const nextDate = calcNextDueDate(task, dayStartTime);
         nextData = {
           status: 'upcoming',
           dueDate: nextDate,
           completedAt: null,
           gainedReward: null,
-          subtasks: mapSubtasks(t.subtasks || [], s => ({ ...s, status: 'upcoming' }))
+          subtasks: mapSubtasks(task.subtasks || [], s => {
+            const shouldReset = task.resetSubtasksOnParentReset ?? true;
+            if (shouldReset === false) return s;
+            return { ...s, status: 'upcoming' };
+          })
         };
       } else if (isCompletion) {
-        // ONE-OFF COMPLETION
         nextData = {
           status: intentStatus,
           completedAt: new Date().toISOString(),
           gainedReward: reward
         };
       } else {
-        // STATUS CHANGE ONLY
-        nextData = {
-          status: intentStatus
-        };
-        // Propagate 'missed' or 'pending' status to subtasks if they aren't done
+        nextData = { status: intentStatus };
         if (intentStatus === 'missed' || intentStatus === 'pending') {
-          nextData.subtasks = mapSubtasks(t.subtasks || [], s => {
+          nextData.subtasks = mapSubtasks(task.subtasks || [], s => {
             if (s.status !== 'done' && s.status !== 'did_my_best') {
               return { ...s, status: intentStatus };
             }
@@ -649,24 +665,31 @@ export function TasksProvider({ children }) {
       }
 
       const updated = {
-        ...t,
+        ...task,
         ...nextData,
         statusHistory: updatedHistory,
-        streak: newStreak
+        streak: newStreak,
+        bestStreak: newBest
       };
 
-      if (isCompletion) {
-        unlockPrizeByTaskId(t.id, tasks);
-        if (t.energy === 'low') {
-          setGamesUnlockEndTime(Date.now() + 3600000);
-          needsImmediateSyncRef.current = true;
-        }
-      }
-
       logTaskEvent(updated, intentStatus);
-      return updated;
-    }));
-  }, [dayStartTime, setTasks, logTaskEvent]);
+
+      return prev.map(t => String(t.id) === String(taskId) ? updated : t);
+    });
+
+    // Run side effects AFTER setTasks
+    if (isCompletion) {
+      unlockPrizeByTaskId(taskId, tasks);
+      if (sideEffects.recordBroken) {
+        addFreeRoll(5);
+        Alert.alert("🔥 NEW RECORD!", `You've beaten your best streak for "${sideEffects.taskTitle}"! Enjoy 5 free rolls.`);
+      }
+      if (sideEffects.gamesUnlocked) {
+        setGamesUnlockEndTime(Date.now() + 3600000);
+        needsImmediateSyncRef.current = true;
+      }
+    }
+  }, [dayStartTime, setTasks, logTaskEvent, unlockPrizeByTaskId, tasks, addFreeRoll]);
 
   if (!loaded) return null;
 
@@ -690,4 +713,3 @@ export function useTasks() {
   if (!context) throw new Error('useTasks must be used within TasksProvider');
   return context;
 }
-

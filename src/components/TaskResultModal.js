@@ -50,7 +50,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
     // First roll: Base dice
     Animated.timing(spinVal, {
       toValue: 1,
-      duration: 1200,
+      duration: 700,
       easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
     }).start(() => {
@@ -78,7 +78,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
         // Second roll: Multiplier
         Animated.timing(spinVal, {
           toValue: 1,
-          duration: 1200,
+          duration: 700,
           easing: Easing.out(Easing.cubic),
           useNativeDriver: true,
         }).start(() => {
@@ -95,9 +95,9 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
           setTimeout(() => {
             setStep('result');
             spinVal.setValue(0);
-          }, 2000);
+          }, 1200);
         });
-      }, 3000);
+      }, 800);
     });
   }
 
@@ -125,8 +125,18 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
                 <Ionicons name="close" size={24} color="#9ca3af" />
               </TouchableOpacity>
               <Text style={styles.title}>
-                {task._isBulk ? `Bulk Collection (${task.rewardsCount})` : 'Task Complete!'}
+                {task?._isBulk ? `Bulk Collection (${task?.rewardsCount})` : 'Task Complete!'}
               </Text>
+              
+              {!task?._isBulk && (
+                <View style={{ flexDirection: 'row', justifyContent: 'center', gap: 12, marginBottom: 12 }}>
+                  <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10, flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    <Text style={{ fontSize: 14 }}>🔥</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '800', color: '#059669' }}>{task?.streak || 0} Day Streak</Text>
+                  </View>
+                </View>
+              )}
+
               <Text style={styles.sub}>
                 Choose your reward tier: [H] = Highest d20 | [Σ] = Sum of d20s | [xd20] = d20 Multiplier
               </Text>
@@ -146,7 +156,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
           {step === 'rollBase' && (
             <View style={styles.rollContainer}>
               <Text style={styles.title}>Rolling {selectedOpt.count}d20 ({selectedOpt.mode === 'highest' ? 'Highest' : 'Total'})...</Text>
-              <View style={{ height: 120, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+              <View style={{ height: 120, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 2 }}>
                 <Dice3D size={110} rolling={true} color={selectedOpt.color} />
                 {selectedOpt.count >= 2 && <Dice3D size={110} rolling={true} color={selectedOpt.color} />}
                 {selectedOpt.count >= 3 && <Dice3D size={110} rolling={true} color={selectedOpt.color} />}
@@ -163,7 +173,7 @@ export default function TaskResultModal({ visible, task, onClose, onComplete }) 
                     ? `Total: ${baseRoll}!`
                     : `You rolled a ${baseRoll}!`}
               </Text>
-              <View style={{ height: 110, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 6 }}>
+              <View style={{ height: 110, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 2 }}>
                 <Dice3D size={110} rolling={false} result={rollDetails.r1} color={selectedOpt.color} />
                 {selectedOpt.count >= 2 && <Dice3D size={110} rolling={false} result={rollDetails.r2} color={selectedOpt.color} />}
                 {selectedOpt.count >= 3 && <Dice3D size={110} rolling={false} result={rollDetails.r3} color={selectedOpt.color} />}
@@ -307,8 +317,8 @@ const styles = StyleSheet.create({
   calcRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    marginVertical: 20,
+    gap: 8,
+    marginVertical: 16,
   },
   calcBox: {
     alignItems: 'center',

@@ -16,6 +16,7 @@ import { useTheme } from '../lib/ThemeContext';
 import { useProfile } from '../lib/ProfileContext';
 import { supabase } from '../lib/supabase';
 import { useTasks } from '../lib/TasksContext';
+import { useSettings } from '../lib/SettingsContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ScrollToTop from '../components/ScrollToTop';
 import ModalScreen from '../components/ModalScreen';
@@ -381,16 +382,28 @@ function VaultModal({ visible, onClose }) {
                   </TouchableOpacity>
                 )}
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <TouchableOpacity onPress={() => startEditing(prize)} style={{ padding: 6 }}>
-                    <Ionicons name="pencil" size={18} color={colors.primary} />
+                  <TouchableOpacity 
+                    onPress={() => startEditing(prize)} 
+                    style={{ padding: 10 }}
+                    hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                  >
+                    <Ionicons name="pencil" size={20} color={colors.primary} />
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => {
-                    Alert.alert('Delete Prize', 'Remove this prize from the vault?', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deleteVaultPrize(prize.id) }
-                    ]);
-                  }} style={{ padding: 6 }}>
-                    <Ionicons name="trash-outline" size={20} color={colors.textMuted} />
+                  <TouchableOpacity 
+                    onPress={() => {
+                      if (Platform.OS === 'web') {
+                        if (window.confirm('Delete this prize from the vault?')) deleteVaultPrize(prize.id);
+                      } else {
+                        Alert.alert('Delete Prize', 'Remove this prize from the vault?', [
+                          { text: 'Cancel', style: 'cancel' },
+                          { text: 'Delete', style: 'destructive', onPress: () => deleteVaultPrize(prize.id) }
+                        ]);
+                      }
+                    }} 
+                    style={{ padding: 10 }}
+                    hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
+                  >
+                    <Ionicons name="trash-outline" size={22} color={colors.textMuted} />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -730,6 +743,7 @@ function VaultModal({ visible, onClose }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function DiceScreen({ navigation, route }) {
+  const { dayStartTime } = useSettings();
   const { economy, spendPoints, addFreeRoll, addTokens, getRollCost, getReshuffleCost, getPrizeEditCost } = useEconomy();
   const { user, storagePrefix } = useProfile();
   const isFocused = useIsFocused();
@@ -1031,7 +1045,7 @@ export default function DiceScreen({ navigation, route }) {
     
     async function checkDailyPrompt() {
       const now = new Date();
-      if (now.getHours() < 8) return; // Only prompt at or after 8 AM
+      if (now.getHours() < dayStartTime) return; // Only prompt at or after rollover time
       
       const todayString = now.toDateString();
       const promptKey = `${storagePrefix}last_daily_reshuffle_prompt`;
@@ -1047,7 +1061,7 @@ export default function DiceScreen({ navigation, route }) {
         
         Alert.alert(
           'Daily Board Refresh 🎲',
-          'It is past 8:00 AM and your rewards board is from yesterday! Would you like to perform a free manual reshuffle for the new day?',
+          `It is past ${dayStartTime}:00 AM and your rewards board is from yesterday! Would you like to perform a free manual reshuffle for the new day?`,
           [
             { text: 'Maybe Later', style: 'cancel' },
             { 
@@ -1074,21 +1088,25 @@ export default function DiceScreen({ navigation, route }) {
     if (isResultRoll) {
        let winTitle = "";
        let won = false;
-       if (face > 17) {
-          won = true;
-          if (bank5IfOver17 > 0) {
-             const rolls = 5 * bank5IfOver17;
-             addFreeRoll(rolls);
-             winTitle = `🎯 JACKPOT! +${rolls} Free Rolls!`;
-          }
-          if (tokensIfOver17 > 0) {
-             const tks = 10 * tokensIfOver17;
-             addTokens(tks);
-             winTitle = winTitle ? `${winTitle} & +${tks} Tokens!` : `🎯 JACKPOT! +${tks} Tokens!`;
-          }
-       } else {
-          winTitle = "No reward this time. 💀";
-       }
+       if (face > 18) {
+           won = true;
+           if (bank5IfOver17 > 0) {
+              const rolls = 5 * bank5IfOver17;
+              addFreeRoll(rolls);
+              winTitle = `🎯 Jackpot Roll! +${rolls} Free Rolls!`;
+           }
+           if (tokensIfOver17 > 0) {
+              const tks = 10 * tokensIfOver17;
+              addTokens(tks);
+              winTitle = winTitle ? `${winTitle} & +${tks} Tokens!` : `🎯 Jackpot Roll! +${tks} Tokens!`;
+           }
+        } else if (face === 18) {
+           // Roll 18 should be swap prize even on jackpot rolls
+           winTitle = "[Swap] Replace a prize!";
+           won = true;
+        } else {
+           winTitle = "No reward this time. 💀";
+        }
        
        setBank5IfOver17(0);
        setTokensIfOver17(0);
@@ -1096,7 +1114,10 @@ export default function DiceScreen({ navigation, route }) {
        setHistory(h => [{ face, prize: winTitle, time: Date.now() }, ...h].slice(0, 20));
        
        if (currentMultiplier > 1) setMultiplier(1);
-       return; // Exit early: Result rolls don't grant the face prize
+       if (face === 18) {
+           setShowSwapUI(currentMultiplier);
+        }
+        return; // Exit early: Result rolls don't grant the face prize
     }
 
     let displayPrize = basePrize;
@@ -1492,11 +1513,11 @@ export default function DiceScreen({ navigation, route }) {
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <Ionicons name="dice-outline" size={18} color="#fff" />
                   <Text style={[styles.rollAgainText, { color: '#fff' }]}>
-                    {(bank5IfOver17 > 0 || tokensIfOver17 > 0) ? 'Free Jackpot Roll' : (multiplier > 1 ? `Roll x${multiplier}` : 'Roll Dice')}
+                    {(bank5IfOver17 > 0 || tokensIfOver17 > 0) ? 'Jackpot Roll!' : (multiplier > 1 ? `Roll x${multiplier}` : 'Roll Dice')}
                   </Text>
                 </View>
                 <Text style={{ fontSize: 10, color: 'rgba(255,255,255,0.7)', fontWeight: '600' }}>
-                  {(bank5IfOver17 > 0 || tokensIfOver17 > 0) ? 'No cost for this roll' : `Use ${getRollCost()} Pts or 1 Free Roll`}
+                  {(bank5IfOver17 > 0 || tokensIfOver17 > 0) ? 'This roll is free!' : `Cost: ${getRollCost()} Pts or 1 Free Roll`}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -2089,8 +2110,8 @@ const styles = StyleSheet.create({
   gameArea: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingTop: 16,
-    paddingBottom: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
   },
   diceNumberWrap: {
     ...StyleSheet.absoluteFillObject,
@@ -2107,8 +2128,8 @@ const styles = StyleSheet.create({
   },
   tapHintRow: {
     alignItems: 'center',
-    paddingVertical: 16,
-    minHeight: 52,
+    paddingVertical: 8,
+    minHeight: 40,
     justifyContent: 'center',
   },
   tapHint: {

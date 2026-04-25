@@ -150,7 +150,7 @@ function D20Model({ rolling, result, color, manualRotation }) {
 
     if (rolling) {
       const axis = new THREE.Vector3(1, 0.5, 0.2).normalize();
-      meshRef.current.rotateOnWorldAxis(axis, delta * 15);
+      meshRef.current.rotateOnWorldAxis(axis, delta * 25);
       currentQuaternion.current.copy(meshRef.current.quaternion);
     } else if (result) {
       const targetRoll = typeof result === 'object' ? (result.face || 20) : result;
@@ -168,7 +168,7 @@ function D20Model({ rolling, result, color, manualRotation }) {
         new THREE.Quaternion();
         
       targetQuaternion.current.copy(safeQuaternion);
-      meshRef.current.quaternion.slerp(targetQuaternion.current, 0.1);
+      meshRef.current.quaternion.slerp(targetQuaternion.current, 0.18);
     } else {
       meshRef.current.rotation.y += delta * 0.5;
       meshRef.current.rotation.x = Math.sin(state.clock.elapsedTime) * 0.1;

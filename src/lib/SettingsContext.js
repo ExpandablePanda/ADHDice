@@ -8,6 +8,7 @@ const SettingsContext = createContext();
 export function SettingsProvider({ children }) {
   const { storagePrefix, user } = useProfile();
   const [dayStartTime, setDayStartTime] = useState(6); // Default 6 AM
+  const [resetSubtasksOnParentReset, setResetSubtasksOnParentReset] = useState(true); // Default true
   const [loaded, setLoaded] = useState(false);
 
   // Load from local storage
@@ -19,6 +20,9 @@ export function SettingsProvider({ children }) {
           const parsed = JSON.parse(stored);
           if (parsed.dayStartTime !== undefined) {
             setDayStartTime(parsed.dayStartTime);
+          }
+          if (parsed.resetSubtasksOnParentReset !== undefined) {
+            setResetSubtasksOnParentReset(parsed.resetSubtasksOnParentReset);
           }
         }
       } catch (e) {
@@ -39,8 +43,9 @@ export function SettingsProvider({ children }) {
   }, [user, loaded]);
 
   const updateSettings = async (updates) => {
-    const newSettings = { dayStartTime, ...updates };
+    const newSettings = { dayStartTime, resetSubtasksOnParentReset, ...updates };
     if (updates.dayStartTime !== undefined) setDayStartTime(updates.dayStartTime);
+    if (updates.resetSubtasksOnParentReset !== undefined) setResetSubtasksOnParentReset(updates.resetSubtasksOnParentReset);
 
     try {
       await AsyncStorage.setItem(`${storagePrefix}settings`, JSON.stringify(newSettings));
@@ -61,8 +66,9 @@ export function SettingsProvider({ children }) {
       const channel = new window.BroadcastChannel('adhddice_settings_sync');
       channel.onmessage = (event) => {
         if (event.data.type === 'SYNC_SETTINGS') {
-          const { dayStartTime: newTime } = event.data.payload;
+          const { dayStartTime: newTime, resetSubtasksOnParentReset: newReset } = event.data.payload;
           if (newTime !== undefined) setDayStartTime(newTime);
+          if (newReset !== undefined) setResetSubtasksOnParentReset(newReset);
         }
       };
       return () => channel.close();

@@ -18,6 +18,7 @@ const INITIAL_ECONOMY = {
   bankedRewards: [],
   vaultPrizes: [],
   lastInflationUpdate: 0,
+  dailyRecord: 0,
 };
 
 const BASE_ROLL_COST = 100;
@@ -439,6 +440,15 @@ export function EconomyProvider({ children }) {
     return Math.floor(pts);
   };
 
+  const updateDailyRecord = (count) => {
+    setEconomy(prev => {
+      if (count > (prev.dailyRecord || 0)) {
+        return { ...prev, dailyRecord: count };
+      }
+      return prev;
+    });
+  };
+
   return (
     <EconomyContext.Provider value={{ 
       economy, addReward, spendPoints, removeReward, resetEconomy, 
@@ -446,7 +456,8 @@ export function EconomyProvider({ children }) {
       addXP, addFreeRoll, bulkConsumeFreeRolls,
       addBankedReward, claimBankedRewards,
       addVaultPrize, editVaultPrize, unlockPrizeByTaskId, deleteVaultPrize, claimVaultPrize, contributeTokensToPrize,
-      addTokens, spendTokens, getRollCost, getReshuffleCost, getPrizeEditCost, calculateDiminishingPoints
+      addTokens, spendTokens, getRollCost, getReshuffleCost, getPrizeEditCost, calculateDiminishingPoints,
+      updateDailyRecord
     }}>
       {children}
     </EconomyContext.Provider>

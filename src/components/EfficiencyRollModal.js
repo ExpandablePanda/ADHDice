@@ -13,10 +13,10 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
   const [multiplier, setMultiplier] = useState(1);
   const [finalResults, setFinalResults] = useState([]); // Array of winners
   
-  // Per-task animation state
   const [currentTaskIndex, setCurrentTaskIndex] = useState(0);
   const [currentSubs, setCurrentSubs] = useState([]);
-  const [animationStage, setAnimationStage] = useState('idle'); // idle | rolling | settled | cleanup
+  const [animationStage, setAnimationStage] = useState('idle'); // idle | rolling | sub_settled | settled | cleanup
+  const [currentSubRollingIndex, setCurrentSubRollingIndex] = useState(-1);
   
   const rollPlayer = useAudioPlayer(require('../../assets/dice-roll.wav'));
 
@@ -60,36 +60,52 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
     rollNextTask(0);
   }
 
-  function rollNextTask(index) {
-    if (index >= rolls) {
-      setTimeout(() => setStep('ready_mult'), 1000);
+  function rollNextTask(taskIdx) {
+    if (taskIdx >= rolls) {
+      setTimeout(() => setStep('ready_mult'), 600);
       return;
     }
 
-    setCurrentTaskIndex(index);
-    setAnimationStage('rolling');
-    setCurrentSubs([]); // Reset visuals
-    playRollSound();
+    setCurrentTaskIndex(taskIdx);
+    setCurrentSubs([]); 
+    rollNextSub(taskIdx, 0, []);
+  }
 
-    // Roll for 1.5s
-    setTimeout(() => {
-      const subs = Array.from({ length: selectedOpt.count }, () => Math.floor(Math.random() * 20) + 1);
-      setCurrentSubs(subs);
+  function rollNextSub(taskIdx, subIdx, accumulatedSubs) {
+    if (subIdx >= selectedOpt.count) {
+      // All subs for this task are done
       setAnimationStage('settled');
-
-      // Stay settled for 1.5s so user can process ALL dice
+      setCurrentSubRollingIndex(-1);
+      
       setTimeout(() => {
         setAnimationStage('cleanup');
-        const winner = Math.max(...subs);
+        const winner = Math.max(...accumulatedSubs);
         
-        // Wait 1s for the "cleanup" (fading losers)
         setTimeout(() => {
           setFinalResults(prev => [...prev, winner]);
-          // Next task
-          rollNextTask(index + 1);
-        }, 1000);
-      }, 1500);
-    }, 1500);
+          rollNextTask(taskIdx + 1);
+        }, 400);
+      }, 700);
+      return;
+    }
+
+    // Roll one specific die
+    setAnimationStage('rolling');
+    setCurrentSubRollingIndex(subIdx);
+    playRollSound();
+
+    // Roll duration
+    setTimeout(() => {
+      const result = Math.floor(Math.random() * 20) + 1;
+      const newSubs = [...accumulatedSubs, result];
+      setCurrentSubs(newSubs);
+      setAnimationStage('sub_settled');
+
+      // Pause to show result
+      setTimeout(() => {
+        rollNextSub(taskIdx, subIdx + 1, newSubs);
+      }, 400);
+    }, 700);
   }
 
   // Removed old revealNextDie logic in favor of rollNextTask hierarchy
@@ -100,7 +116,7 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
     // D4 roll animation for 2 seconds
     setTimeout(() => {
       setStep('results');
-    }, 2000);
+    }, 1000);
   }
 
   const sum = finalResults.reduce((acc, curr) => acc + curr, 0);
@@ -171,31 +187,29 @@ export default function EfficiencyRollModal({ visible, rolls, onClose, onFinish 
               <Text style={styles.subtitle}>Task {currentTaskIndex + 1} of {rolls} ({selectedOpt.name})</Text>
               
               <View style={{ height: 200, width: '100%', flexDirection: 'row', justifyContent: 'center', gap: 10, marginVertical: 30 }}>
-                {animationStage === 'rolling' && (
-                  <>
-                    <Dice3D size={120} rolling={true} color={selectedOpt.color || '#8b5cf6'} />
-                    {selectedOpt.count >= 2 && <Dice3D size={120} rolling={true} color={selectedOpt.color || '#8b5cf6'} />}
-                    {selectedOpt.count >= 3 && <Dice3D size={120} rolling={true} color={selectedOpt.color || '#8b5cf6'} />}
-                  </>
-                )}
-                {(animationStage === 'settled' || animationStage === 'cleanup') && (
-                  <>
-                    {currentSubs.map((val, idx) => {
-                      const isWinner = val === Math.max(...currentSubs);
-                      // In cleanup, hide losers
-                      if (animationStage === 'cleanup' && !isWinner) return null;
-                      return (
-                        <View key={idx} style={{ alignItems: 'center' }}>
-                          <Dice3D size={120} rolling={false} result={val} color={isWinner ? '#8b5cf6' : '#9ca3af'} />
-                          {isWinner && (
-                            <View style={{ marginTop: 10, backgroundColor: '#8b5cf6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
-                              <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>BEST</Text>
-                            </View>
-                          )}
+                {/* 1. Show already settled subs */}
+                {currentSubs.map((val, idx) => {
+                  const isWinner = val === Math.max(...currentSubs);
+                  const isLoser = animationStage === 'cleanup' && !isWinner;
+                  if (isLoser) return null;
+
+                  return (
+                    <View key={idx} style={{ alignItems: 'center' }}>
+                      <Dice3D size={120} rolling={false} result={val} color={isWinner && animationStage === 'settled' ? '#8b5cf6' : '#9ca3af'} />
+                      {(isWinner && (animationStage === 'settled' || animationStage === 'cleanup')) && (
+                        <View style={{ marginTop: 10, backgroundColor: '#8b5cf6', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 }}>
+                          <Text style={{ color: '#fff', fontSize: 12, fontWeight: '800' }}>BEST</Text>
                         </View>
-                      );
-                    })}
-                  </>
+                      )}
+                    </View>
+                  );
+                })}
+
+                {/* 2. Show the currently rolling sub */}
+                {animationStage === 'rolling' && (
+                  <View style={{ alignItems: 'center' }}>
+                    <Dice3D size={120} rolling={true} color={selectedOpt.color || '#8b5cf6'} />
+                  </View>
                 )}
               </View>
 
@@ -424,8 +438,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    gap: 12,
-    marginVertical: 40,
+    gap: 8,
+    marginVertical: 20,
   },
   historyDie: {
     width: 60,
@@ -435,7 +449,7 @@ const styles = StyleSheet.create({
   },
   sumResultArea: {
     alignItems: 'center',
-    marginVertical: 24,
+    marginVertical: 12,
   },
   sumLabel: {
     fontSize: 15,
@@ -453,12 +467,12 @@ const styles = StyleSheet.create({
   multArea: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
     backgroundColor: '#eef2ff',
-    paddingHorizontal: 24,
-    paddingVertical: 12,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
     borderRadius: 32,
-    marginBottom: 32,
+    marginBottom: 20,
   },
   multText: {
     fontSize: 20,
