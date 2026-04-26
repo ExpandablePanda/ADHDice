@@ -2460,7 +2460,15 @@ export default function TasksScreen() {
         return;
       }
       if (targetStatus === 'missed') {
-        Alert.alert("Missed Subtask", `Mark "${subject.title}" as missed?`, [
+        const msg = `Mark "${subject.title}" as missed?`;
+        if (Platform.OS === 'web') {
+          if (window.confirm(msg)) {
+            setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, 'missed') } : t));
+            logTaskEvent(subject, 'missed');
+          }
+          return;
+        }
+        Alert.alert("Missed Subtask", msg, [
           { text: "Cancel", style: "cancel" },
           { text: "Confirm Missed", style: "destructive", onPress: () => {
             setTasks(prev => prev.map(t => t.id === taskId ? { ...t, subtasks: updateStatusInTree(t.subtasks, subtaskId, 'missed') } : t));
@@ -2486,9 +2494,17 @@ export default function TasksScreen() {
       
       setTasks(prev => prev.map(t => t.id === taskId ? { ...t, statusHistory: { ...(t.statusHistory || {}), [appDay]: targetStatus } } : t));
     } else if (targetStatus === 'missed') {
+      const msg = `Confirming this will mark "${task.title}" as missed and start a Missed Streak. Are you sure?`;
+      if (Platform.OS === 'web') {
+        if (window.confirm(msg)) {
+          incrementMissedStreak();
+          completeTask(taskId, 'missed');
+        }
+        return;
+      }
       Alert.alert(
         "Missed Task",
-        `Confirming this will mark "${task.title}" as missed and start a Missed Streak. Are you sure?`,
+        msg,
         [
           { text: "Cancel", style: "cancel" },
           { text: "Confirm Missed", style: "destructive", onPress: () => {
