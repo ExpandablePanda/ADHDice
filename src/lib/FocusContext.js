@@ -205,14 +205,10 @@ export function FocusProvider({ children }) {
     if (!loaded || !user) return;
     const { entries: e, categories: c, goals: g, timerState: ts, activeTimerKeys: atk } = stateRef.current;
 
-    if (e.length === 0 && everHadEntriesRef.current) {
-      console.warn('saveFocusData: skipping empty-entries save (entries existed before)');
-      return;
-    }
     if (e.length > 0) everHadEntriesRef.current = true;
-    
+
     const focusData = { entries: e, categories: c, goals: g, timerState: ts, activeTimerKeys: atk };
-    
+
     // Broadcast immediately (even if cloud fails)
     if (broadcastRef.current) {
       broadcastRef.current.postMessage({ type: 'FOCUS_UPDATE', ...focusData, storagePrefix });
@@ -226,18 +222,24 @@ export function FocusProvider({ children }) {
     await AsyncStorage.setItem(`${storagePrefix}active_timer_keys`, JSON.stringify(atk));
     await AsyncStorage.setItem(`${storagePrefix}focus_last_updated`, String(now));
 
-    if (user) {
-      setIsSyncing(true);
-      try {
-        const { error } = await supabase
-          .from('user_focus')
-          .upsert({ user_id: user.id, data: focusData, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
-        if (error) throw error;
-      } catch (err) {
-        console.error('Focus cloud save failed', err);
-      } finally {
-        setIsSyncing(false);
+    setIsSyncing(true);
+    try {
+      // If local entries are empty but we've had entries before, fetch from cloud
+      // so we don't accidentally overwrite real history while saving categories/goals.
+      let entriesToSave = e;
+      if (e.length === 0 && everHadEntriesRef.current) {
+        const { data } = await supabase.from('user_focus').select('data').eq('user_id', user.id).single();
+        if (data?.data?.entries?.length > 0) entriesToSave = data.data.entries;
       }
+
+      const { error } = await supabase
+        .from('user_focus')
+        .upsert({ user_id: user.id, data: { ...focusData, entries: entriesToSave }, updated_at: new Date().toISOString() }, { onConflict: 'user_id' });
+      if (error) throw error;
+    } catch (err) {
+      console.error('Focus cloud save failed', err);
+    } finally {
+      setIsSyncing(false);
     }
   }, [loaded, user, storagePrefix]);
 
