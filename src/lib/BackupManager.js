@@ -147,24 +147,30 @@ export async function restoreBackup(storagePrefix, backupId, user = null) {
     const { economy, tasks, notes, history, focus } = backup.data;
     const nowISO = new Date().toISOString();
 
+    const hasTasks = tasks && tasks.length > 0;
+    const hasHistory = history && history.length > 0;
+    const hasNotes = notes && notes.length > 0;
+    const hasEconomy = economy && (economy.xp > 0 || economy.points > 0 || economy.level > 1 || economy.tokens > 0 || (economy.vaultPrizes && economy.vaultPrizes.length > 0));
+    const hasFocusEntries = focus && focus.entries && focus.entries.length > 0;
+
     if (economy) {
       await AsyncStorage.setItem(`${storagePrefix}economy`, JSON.stringify(economy));
-      if (user) {
+      if (user && hasEconomy) {
         await supabase.from('user_economy').upsert({ user_id: user.id, data: economy, updated_at: nowISO }, { onConflict: 'user_id' });
       }
     }
-    if (tasks || history) {
+    if (hasTasks || hasHistory) {
       if (tasks) await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(tasks));
       if (history) await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(history));
-      await AsyncStorage.setItem(`${storagePrefix}tasks_last_updated`, '0');
-      if (user) {
+      await AsyncStorage.setItem(`${storagePrefix}tasks_last_updated`, String(Date.now()));
+      if (user && hasTasks) {
         const tasksPayload = { tasks: tasks || [], history: history || [], breakTimer: null };
         await supabase.from('user_tasks').upsert({ user_id: user.id, data: tasksPayload, updated_at: nowISO }, { onConflict: 'user_id' });
       }
     }
     if (notes) {
       await AsyncStorage.setItem(`${storagePrefix}notes`, JSON.stringify(notes));
-      if (user) {
+      if (user && hasNotes) {
         await supabase.from('user_notes').upsert({ user_id: user.id, data: notes, updated_at: nowISO }, { onConflict: 'user_id' });
       }
     }
@@ -175,8 +181,8 @@ export async function restoreBackup(storagePrefix, backupId, user = null) {
       if (focus.timerState) await AsyncStorage.setItem(`${storagePrefix}timer_state`, JSON.stringify(focus.timerState));
       if (focus.activeTimerKeys) await AsyncStorage.setItem(`${storagePrefix}active_timer_keys`, JSON.stringify(focus.activeTimerKeys));
       await AsyncStorage.setItem(`${storagePrefix}focus_last_updated`, String(Date.now()));
-      
-      if (user) {
+
+      if (user && hasFocusEntries) {
         await supabase.from('user_focus').upsert({ user_id: user.id, data: focus, updated_at: nowISO }, { onConflict: 'user_id' });
       }
     }

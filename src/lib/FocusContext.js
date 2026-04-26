@@ -37,6 +37,7 @@ export function FocusProvider({ children }) {
   const lastLocalChangeRef = useRef(0);
   const isRemoteUpdateRef  = useRef(false);
   const broadcastRef       = useRef(null);
+  const everHadEntriesRef  = useRef(false);
 
   // 1. Multi-tab Sync (Web)
   useEffect(() => {
@@ -70,7 +71,11 @@ export function FocusProvider({ children }) {
       const storedVisKeys = await AsyncStorage.getItem(`${storagePrefix}active_timer_keys`);
       
       if (storedEntries) {
-        try { setEntries(JSON.parse(storedEntries).map(e => ({ ...e, date: new Date(e.date) }))); } catch(e) {}
+        try {
+          const parsed = JSON.parse(storedEntries).map(e => ({ ...e, date: new Date(e.date) }));
+          if (parsed.length > 0) everHadEntriesRef.current = true;
+          setEntries(parsed);
+        } catch(e) {}
       }
       if (storedCats) {
         try { 
@@ -133,6 +138,7 @@ export function FocusProvider({ children }) {
             if (cloudTs > localTs) {
               isRemoteUpdateRef.current = true;
               const cloud = data.data;
+              if (cloud.entries && cloud.entries.length > 0) everHadEntriesRef.current = true;
               if (cloud.entries) setEntries(cloud.entries.map(e => ({ ...e, date: new Date(e.date) })));
               if (cloud.categories) setCategories(cloud.categories);
               if (cloud.goals) setGoals(cloud.goals);
@@ -198,6 +204,12 @@ export function FocusProvider({ children }) {
   const saveFocusData = useCallback(async () => {
     if (!loaded || !user) return;
     const { entries: e, categories: c, goals: g, timerState: ts, activeTimerKeys: atk } = stateRef.current;
+
+    if (e.length === 0 && everHadEntriesRef.current) {
+      console.warn('saveFocusData: skipping empty-entries save (entries existed before)');
+      return;
+    }
+    if (e.length > 0) everHadEntriesRef.current = true;
     
     const focusData = { entries: e, categories: c, goals: g, timerState: ts, activeTimerKeys: atk };
     

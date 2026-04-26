@@ -34,6 +34,7 @@ export function EconomyProvider({ children }) {
   const lastLocalChangeRef = useRef(0);
   const isRemoteUpdateRef  = useRef(false);
   const broadcastRef       = useRef(null);
+  const everHadEconomyRef  = useRef(false);
 
   // BroadcastChannel for web
   useEffect(() => {
@@ -60,7 +61,11 @@ export function EconomyProvider({ children }) {
           try {
             const data = JSON.parse(stored);
             if (data && data.tokens === undefined) data.tokens = 0;
-            setEconomy({ ...INITIAL_ECONOMY, ...data });
+            const merged = { ...INITIAL_ECONOMY, ...data };
+            if (merged.xp > 0 || merged.points > 0 || merged.level > 1 || merged.tokens > 0) {
+              everHadEconomyRef.current = true;
+            }
+            setEconomy(merged);
           } catch (e) {
             console.error('Failed to parse economy data', e);
           }
@@ -83,11 +88,13 @@ export function EconomyProvider({ children }) {
 
           if (data?.data) {
             const cloudTs = new Date(data.updated_at).getTime();
-            
+
             // Only overwrite if cloud is strictly newer than local
             if (cloudTs > localTs) {
               isRemoteUpdateRef.current = true;
-              setEconomy(data.data);
+              const d = data.data;
+              if (d.xp > 0 || d.points > 0 || d.level > 1 || d.tokens > 0) everHadEconomyRef.current = true;
+              setEconomy(d);
             } else if (localTs > cloudTs + 2000) {
               // Local is newer, trigger a sync to cloud soon
               lastLocalChangeRef.current = Date.now();
@@ -138,9 +145,16 @@ export function EconomyProvider({ children }) {
 
     const saveData = async () => {
       const dataToSave = economy;
+      const isBlank = (dataToSave.xp || 0) === 0 && (dataToSave.points || 0) === 0 && (dataToSave.level || 1) <= 1 && (dataToSave.tokens || 0) === 0;
       const now = Date.now();
       await AsyncStorage.setItem(`${storagePrefix}economy`, JSON.stringify(dataToSave));
       await AsyncStorage.setItem(`${storagePrefix}economy_last_updated`, String(now));
+
+      if (isBlank && everHadEconomyRef.current) {
+        console.warn('EconomyContext: skipping blank economy save to Supabase');
+        return;
+      }
+      if (!isBlank) everHadEconomyRef.current = true;
 
       try {
         const { error } = await supabase

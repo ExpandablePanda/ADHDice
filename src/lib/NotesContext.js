@@ -14,6 +14,7 @@ export function NotesProvider({ children }) {
   const lastLocalChangeRef = useRef(0);
   const isRemoteUpdateRef  = useRef(false);
   const broadcastRef       = useRef(null);
+  const everHadNotesRef    = useRef(false);
 
   // BroadcastChannel for web multi-tab sync
   useEffect(() => {
@@ -36,7 +37,11 @@ export function NotesProvider({ children }) {
       setLoaded(false);
       const stored = await AsyncStorage.getItem(`${storagePrefix}notes`);
       if (stored) {
-        try { setNotes(JSON.parse(stored)); } catch(e) {}
+        try {
+          const parsed = JSON.parse(stored);
+          if (parsed.length > 0) everHadNotesRef.current = true;
+          setNotes(parsed);
+        } catch(e) {}
       }
 
       if (user) {
@@ -49,6 +54,7 @@ export function NotesProvider({ children }) {
 
           if (data?.data) {
             isRemoteUpdateRef.current = true;
+            if (data.data.length > 0) everHadNotesRef.current = true;
             setNotes(data.data);
           }
         } catch (e) {
@@ -97,6 +103,12 @@ export function NotesProvider({ children }) {
     const saveData = async () => {
       const dataToSave = notes;
       await AsyncStorage.setItem(`${storagePrefix}notes`, JSON.stringify(dataToSave));
+
+      if (dataToSave.length === 0 && everHadNotesRef.current) {
+        console.warn('NotesContext: skipping empty notes save to Supabase');
+        return;
+      }
+      if (dataToSave.length > 0) everHadNotesRef.current = true;
 
       try {
         const { error } = await supabase

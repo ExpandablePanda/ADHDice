@@ -221,6 +221,7 @@ export function TasksProvider({ children }) {
   const [taskHistory, setTaskHistory] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const everHadTasksRef = useRef(false);
 
   // Break Timer State
   const [breakTimer, setBreakTimer] = useState(null); // { remainingSeconds: number, totalSeconds: number }
@@ -322,6 +323,7 @@ export function TasksProvider({ children }) {
 
       setTasks(initialTasks);
       setTaskHistory(initialHistory);
+      if (initialTasks.length > 0) everHadTasksRef.current = true;
 
       // B. Cloud sync
       if (user) {
@@ -423,6 +425,13 @@ export function TasksProvider({ children }) {
   const saveTasksData = useCallback(async () => {
     if (!loaded) return;
     const { tasks: t, taskHistory: th, breakTimer: bt, gamesPlayCredits: gpc } = stateRef.current;
+
+    // Never overwrite Supabase with empty tasks if we know tasks existed
+    if (t.length === 0 && everHadTasksRef.current) {
+      console.warn('saveTasksData: skipping empty-tasks save (tasks existed before)');
+      return;
+    }
+    if (t.length > 0) everHadTasksRef.current = true;
     
     const timerToSave = bt ? { ...bt, lastUpdated: Date.now() } : null;
 
