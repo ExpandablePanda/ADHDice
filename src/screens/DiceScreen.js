@@ -3,7 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
   TextInput, FlatList, Animated, Easing, Alert,
   ScrollView, KeyboardAvoidingView, Platform,
-  Dimensions,
+  Dimensions, useWindowDimensions,
 } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -22,7 +22,7 @@ import ScrollToTop from '../components/ScrollToTop';
 import ModalScreen from '../components/ModalScreen';
 import Dice3D from '../components/Dice3D';
 
-const SCREEN_W = Dimensions.get('window').width;
+
 
 const DEFAULT_POOLS = {
   master: [
@@ -743,6 +743,7 @@ function VaultModal({ visible, onClose }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function DiceScreen({ navigation, route }) {
+  const { width: windowWidth } = useWindowDimensions();
   const { dayStartTime } = useSettings();
   const { economy, spendPoints, addFreeRoll, addTokens, getRollCost, getReshuffleCost, getPrizeEditCost } = useEconomy();
   const { user, storagePrefix } = useProfile();
@@ -1477,7 +1478,7 @@ export default function DiceScreen({ navigation, route }) {
             >
               {isFocused && isVisible ? (
                 <Dice3D 
-                  size={Platform.OS === 'web' ? Math.min(SCREEN_W * 0.8, 320) : SCREEN_W * 0.8} 
+                  size={Platform.OS === 'web' ? Math.min(windowWidth * 0.8, 320) : windowWidth * 0.8} 
                   rolling={rolling} 
                   result={result} 
                   color="#6d28d9" 

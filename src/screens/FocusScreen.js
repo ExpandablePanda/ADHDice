@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet, TouchableOpacity, Modal,
   TextInput, FlatList, Alert, ScrollView,
   KeyboardAvoidingView, Platform, Dimensions, Animated,
+  useWindowDimensions,
 } from 'react-native';
 import { useAudioPlayer } from 'expo-audio';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -18,7 +19,7 @@ import Dice3D from '../components/Dice3D';
 import FocusRollModal from '../components/FocusRollModal';
 import UnproductiveRollModal from '../components/UnproductiveRollModal';
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
+
 
 
 
@@ -1017,6 +1018,7 @@ function FocusImportModal({ visible, categories, onClose, onImport }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function FocusScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const {
     entries, addEntry, deleteEntry, updateEntry,
     categories, setCategories,
@@ -1397,9 +1399,10 @@ export default function FocusScreen() {
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.galleryList}
-            snapToInterval={SCREEN_WIDTH - 20}
+            snapToInterval={windowWidth - 20}
             snapToAlignment="start"
             decelerationRate="fast"
+            disableIntervalMomentum={Platform.OS === 'web'}
             ref={ref => {
               scrollRef.current = ref;
             }}
@@ -1413,7 +1416,7 @@ export default function FocusScreen() {
               const isToday = i === 0;
 
               return (
-                <View key={i} style={styles.historyCard}>
+                <View key={i} style={[styles.historyCard, { width: windowWidth - 40 }]}>
                   <View style={styles.todayTop}>
                     <View>
                       <Text style={styles.todayLabel}>{isToday ? 'Today' : fmtDate(date)}</Text>
@@ -1834,7 +1837,7 @@ export default function FocusScreen() {
                   style={{ paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#f3f4f6' }}
                   onPress={() => {
                     if (scrollRef.current) {
-                      scrollRef.current.scrollTo({ x: idx * (SCREEN_WIDTH - 20), animated: true });
+                      scrollRef.current.scrollTo({ x: idx * (windowWidth - 20), animated: true });
                     }
                     setShowDatePicker(false);
                   }}
@@ -2806,7 +2809,7 @@ const styles = StyleSheet.create({
   jumpBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.primary + '10', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, gap: 4 },
   jumpBtnText: { fontSize: 12, fontWeight: '700', color: colors.primary },
   galleryList: { paddingHorizontal: 10 },
-  historyCard: { width: SCREEN_WIDTH - 40, backgroundColor: '#fff', borderRadius: 24, padding: 20, marginHorizontal: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 15, elevation: 3, borderWidth: 1, borderColor: '#f3f4f6' },
+  historyCard: { backgroundColor: '#fff', borderRadius: 24, padding: 20, marginHorizontal: 10, shadowColor: '#000', shadowOpacity: 0.06, shadowRadius: 15, elevation: 3, borderWidth: 1, borderColor: '#f3f4f6' },
   scoreRow: { flexDirection: 'row', alignItems: 'center', marginTop: 15, borderTopWidth: 1, borderTopColor: '#f3f4f6', paddingTop: 15 },
   scoreCircle: { width: 72, height: 72, borderRadius: 36, backgroundColor: colors.primary + '10', alignItems: 'center', justifyContent: 'center', borderWidth: 3, borderColor: '#fff', shadowColor: colors.primary, shadowOpacity: 0.1, shadowRadius: 10 },
   scoreVal: { fontSize: 20, fontWeight: '800', color: colors.primary },

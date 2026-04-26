@@ -2,7 +2,8 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import { useAudioPlayer } from 'expo-audio';
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  Alert, Animated, Easing, Dimensions, Modal, Image, Platform
+  Alert, Animated, Easing, Dimensions, Modal, Image, Platform,
+  useWindowDimensions
 } from 'react-native';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,9 +16,6 @@ import { colors } from '../theme';
 import { useTasks, getLocalDateKey, getAppDayKey, STATUSES, STATUS_ORDER, normalizeDateKey } from '../lib/TasksContext';
 import TaskResultModal from '../components/TaskResultModal';
 
-const SCREEN_W = Dimensions.get('window').width;
-const SCREEN_H = Dimensions.get('window').height;
-
 function fmtTimer(totalSeconds) {
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -25,11 +23,6 @@ function fmtTimer(totalSeconds) {
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
-
-const CARD_W = (SCREEN_W - 80) / 4;
-const CARD_H = CARD_W * 1.4;
-const BATTLE_W = (SCREEN_W - 50) / 2;
-const BATTLE_H = BATTLE_W * 1.4;
 
 // ── Task pool for cards ──────────────────────────────────────────────────────
 const GAME_CARD_STATUSES = {
@@ -80,7 +73,12 @@ function getUnusedTask(currentCards, taskPool) {
 // SUB-COMPONENTS (CARDS, PHASES)
 // ═════════════════════════════════════════════════════════════════════════════
 
-function GameCard({ card, faceDown, small, large, onPress, highlighted, dimmed, flipAnim }) {
+function GameCard({ card, faceDown, small, large, onPress, highlighted, dimmed, flipAnim, cardW, cardH, battleW, battleH }) {
+  const { width: windowWidth } = useWindowDimensions();
+  const cw = cardW || (windowWidth - 80) / 4;
+  const ch = cardH || cw * 1.4;
+  const bw = battleW || (windowWidth - 50) / 2;
+  const bh = battleH || bw * 1.4;
   const statusColor = card ? (GAME_CARD_STATUSES[card.status]?.color || '#6b7280') : '#ffffff';
   const [showFront, setShowFront] = useState(!faceDown);
 
@@ -100,6 +98,9 @@ function GameCard({ card, faceDown, small, large, onPress, highlighted, dimmed, 
     small && styles.cardSmall,
     large && styles.cardLarge,
     { backgroundColor: showFront ? statusColor : '#ffffff', borderColor: showFront ? statusColor : '#e5e7eb' },
+    small && { width: cw, height: ch },
+    large && { width: bw, height: bh },
+    !small && !large && { width: cw, height: ch },
     highlighted && { borderColor: '#ffffff', borderWidth: 2 },
     dimmed && { opacity: 0.4 },
     flipAnim && {
@@ -338,11 +339,16 @@ function WinScreen({ winner, onPlayAgain }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 function ShufflingStage({ onComplete, playShuffleSound }) {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { colors } = useTheme();
+  
+  const cardW = (windowWidth - 80) / 4;
+  const cardH = cardW * 1.4;
+
   // We'll animate 20 cards
   const cards = Array.from({ length: 20 }, (_, i) => ({
     id: i,
-    pos: useRef(new Animated.ValueXY({ x: (i % 4) * (CARD_W + 10) - (SCREEN_W/2 - 40), y: Math.floor(i / 4) * (CARD_H + 10) - 200 })).current,
+    pos: useRef(new Animated.ValueXY({ x: (i % 4) * (cardW + 10) - (windowWidth/2 - 40), y: Math.floor(i / 4) * (cardH + 10) - 200 })).current,
     rot: useRef(new Animated.Value(0)).current,
     scale: useRef(new Animated.Value(1)).current,
     opacity: useRef(new Animated.Value(1)).current,
@@ -412,7 +418,7 @@ function ShufflingStage({ onComplete, playShuffleSound }) {
               }
             ]}
           >
-            <View style={{ width: 240, height: 336 }}>
+            <View style={{ width: cardW * 2, height: cardH * 2 }}>
                <GameCard faceDown large />
             </View>
           </Animated.View>
@@ -541,7 +547,7 @@ const diceStyles = StyleSheet.create({
 // GAME SCREENS
 // ═════════════════════════════════════════════════════════════════════════════
 
-function WarGame({ onBack, tasks, colors }) {
+function WarGame({ onBack, tasks, colors, cardW, cardH, battleW, battleH }) {
   const { logTaskEvent, setTasks, completeTask } = useTasks();
   const { addReward } = useEconomy();
   const [completingWarTask, setCompletingWarTask] = useState(null);
@@ -1285,6 +1291,12 @@ function LockedGamesView({ tasks, colors }) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 export default function GamesScreen() {
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  
+  const cardW = (windowWidth - 80) / 4;
+  const cardH = cardW * 1.4;
+  const battleW = (windowWidth - 50) / 2;
+  const battleH = battleW * 1.4;
   const { colors } = useTheme();
   const { tasks, gamesPlayCredits, consumePlayCredits } = useTasks();
   const [currentGame, setCurrentGame] = useState('hub');
@@ -1323,7 +1335,7 @@ export default function GamesScreen() {
     setTimeLeft(`${m}:${String(s).padStart(2, '0')}`);
   }, [gamesPlayCredits, currentGame]);
 
-  if (currentGame === 'war') return <WarGame onBack={() => setCurrentGame('hub')} tasks={tasks} colors={colors} />;
+  if (currentGame === 'war') return <WarGame onBack={() => setCurrentGame('hub')} tasks={tasks} colors={colors} cardW={cardW} cardH={cardH} battleW={battleW} battleH={battleH} />;
   if (currentGame === 'breather') return <FocusBreather onBack={() => setCurrentGame('hub')} colors={colors} />;
   if (currentGame === 'match') return <DopamineMatch onBack={() => setCurrentGame('hub')} colors={colors} tasks={tasks} />;
   if (currentGame === 'ramp') return <EnergyRamp onBack={() => setCurrentGame('hub')} colors={colors} tasks={tasks} />;
@@ -1387,8 +1399,8 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 24, fontWeight: '800', color: colors.textPrimary },
   resetBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8, backgroundColor: '#f3f4f6' },
   resetBtnText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
-  card: { width: CARD_W, height: CARD_H, borderRadius: 10, borderWidth: 1, padding: 6, justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
-  cardSmall: { width: (SCREEN_W - 80) / 4, height: ((SCREEN_W - 80) / 4) * 1.4, padding: 4 },
+  card: { borderRadius: 10, borderWidth: 1, padding: 6, justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
+  cardSmall: { padding: 4 },
   cardLarge: { width: BATTLE_W, height: BATTLE_H, padding: 12 },
   cardBack: { backgroundColor: '#ffffff', borderColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   cardBackPattern: { alignItems: 'center', justifyContent: 'center' },
@@ -1476,11 +1488,11 @@ const hubStyles = StyleSheet.create({
   zenDoneBtn: { position: 'absolute', bottom: 110, backgroundColor: colors.primary, paddingHorizontal: 24, paddingVertical: 14, borderRadius: 12 },
   zenDoneText: { color: '#fff', fontWeight: '700', fontSize: 16 },
   matchGrid: { flexDirection: 'row', flexWrap: 'wrap', padding: 20, gap: 10, justifyContent: 'center', marginTop: 20 },
-  matchCard: { width: (SCREEN_W - 80) / 4, height: (SCREEN_W - 80) / 4, backgroundColor: '#f3f4f6', borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 4 },
+  matchCard: { backgroundColor: '#f3f4f6', borderRadius: 12, alignItems: 'center', justifyContent: 'center', padding: 4 },
   matchCardText: { fontSize: 8, fontWeight: '700', color: '#fff', textAlign: 'center' },
   matchStats: { fontSize: 16, fontWeight: '700', color: '#111827' },
   matchBest: { fontSize: 14, fontWeight: '600', color: '#9ca3af' },
   matchFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 40, marginTop: 20 },
   logoContainer: { alignItems: 'center', marginTop: 40, marginBottom: 80, opacity: 1, transform: [{ translateX: -5 }, { translateY: 60 }] },
-  footerLogo: { width: SCREEN_W * 0.8, height: SCREEN_W * 0.4 },
+  footerLogo: { },
 });

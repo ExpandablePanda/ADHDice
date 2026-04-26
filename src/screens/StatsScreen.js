@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   View, Text, StyleSheet, ScrollView,
-  Dimensions, TouchableOpacity, Animated, Platform
+  Dimensions, TouchableOpacity, Animated, Platform,
+  useWindowDimensions
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,7 +14,7 @@ import { useTheme } from '../lib/ThemeContext';
 import ScrollToTop from '../components/ScrollToTop';
 import { useFocus } from '../lib/FocusContext';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ function SectionHeader({ title, icon, color }) {
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
 export default function StatsScreen() {
+  const { width: windowWidth } = useWindowDimensions();
   const { colors } = useTheme();
   const { taskHistory } = useTasks();
   const { dayStartTime } = useSettings();
@@ -294,6 +296,7 @@ export default function StatsScreen() {
         {/* Hero Metrics */}
         <View style={styles.heroGrid}>
             <StatCard 
+                style={{ width: (windowWidth - 32 - 12) / 2 }}
                 title="Today" 
                 value={stats.tasksToday} 
                 sub={stats.tasksToday > stats.dailyRecord ? "⭐ NEW RECORD!" : `Best: ${stats.dailyRecord}`}
@@ -410,7 +413,7 @@ export default function StatsScreen() {
                 {hourlyData.map((d, i) => {
                     const opacity = d.value > 0 ? 0.2 + (d.value / hourlyMax) * 0.8 : 0.05;
                     return (
-                        <View key={i} style={styles.hourCol}>
+                        <View key={i} style={[styles.hourCol, { width: (windowWidth - 80) / 12 }]}>
                             <View style={[styles.hourBox, { 
                                 backgroundColor: colors.amber,
                                 opacity: opacity
@@ -432,6 +435,7 @@ export default function StatsScreen() {
                     const intensity = d.value > 0 ? 0.2 + (d.value / heatmapMax) * 0.8 : 0.05;
                     return (
                         <View key={i} style={[styles.heatBox, { 
+                            width: (windowWidth - 80 - 24) / 10,
                             backgroundColor: colors.violet, 
                             opacity: intensity,
                             borderColor: 'rgba(255,255,255,0.1)',
@@ -550,7 +554,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   statCard: {
-    width: (SCREEN_W - 32 - 12) / 2,
     padding: 16,
     borderRadius: 20,
     borderWidth: 1,
