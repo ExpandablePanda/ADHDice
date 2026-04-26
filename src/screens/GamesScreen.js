@@ -1401,7 +1401,7 @@ const styles = StyleSheet.create({
   resetBtnText: { fontSize: 13, color: colors.textMuted, fontWeight: '500' },
   card: { borderRadius: 10, borderWidth: 1, padding: 6, justifyContent: 'space-between', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 6, elevation: 3 },
   cardSmall: { padding: 4 },
-  cardLarge: { width: BATTLE_W, height: BATTLE_H, padding: 12 },
+  cardLarge: { padding: 12 },
   cardBack: { backgroundColor: '#ffffff', borderColor: '#e5e7eb', alignItems: 'center', justifyContent: 'center', borderWidth: 1 },
   cardBackPattern: { alignItems: 'center', justifyContent: 'center' },
   cardRankTop: { position: 'absolute', top: 4, left: 6 },
