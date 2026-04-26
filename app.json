@@ -2,7 +2,7 @@
   "expo": {
     "name": "ADHD Dice Native",
     "slug": "adhddice-native",
-    "version": "6.5.2",
+    "version": "6.5.3",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",

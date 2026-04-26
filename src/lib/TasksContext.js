@@ -347,13 +347,19 @@ export function TasksProvider({ children }) {
 
           if (data?.data) {
             const cloudTs = new Date(data.updated_at).getTime();
-            if (cloudTs > localTs) {
+            // Always take cloud if local is empty, regardless of timestamps.
+            // This prevents a poisoned (empty) tasks_last_updated from shadowing real data.
+            if (cloudTs > localTs || initialTasks.length === 0) {
               isRemoteUpdateRef.current = true;
               const cloud = data.data;
               if (Array.isArray(cloud)) {
-                setTasks(cloud.filter(Boolean));
+                const cloudTasks = cloud.filter(Boolean);
+                // Never overwrite real local tasks with an empty cloud result
+                if (cloudTasks.length > 0 || initialTasks.length === 0) setTasks(cloudTasks);
               } else if (cloud.tasks) {
-                setTasks(cloud.tasks.filter(Boolean));
+                const cloudTasks = cloud.tasks.filter(Boolean);
+                // Never overwrite real local tasks with an empty cloud result
+                if (cloudTasks.length > 0 || initialTasks.length === 0) setTasks(cloudTasks);
                 if (cloud.history) setTaskHistory(cloud.history.filter(Boolean));
                 
                 if (cloud.breakTimer && cloud.breakTimer.endTime) {
@@ -396,11 +402,18 @@ export function TasksProvider({ children }) {
         if (payload.new?.data) {
           const remoteTime = new Date(payload.new.updated_at).getTime();
           if (remoteTime > lastLocalChangeRef.current + 1000) {
-            isRemoteUpdateRef.current = true;
             if (Array.isArray(payload.new.data)) {
-              setTasks(payload.new.data.filter(Boolean));
+              const remoteTasks = payload.new.data.filter(Boolean);
+              // Never let an empty realtime payload wipe tasks we already have
+              if (remoteTasks.length === 0 && stateRef.current.tasks.length > 0) return;
+              isRemoteUpdateRef.current = true;
+              setTasks(remoteTasks);
             } else if (payload.new.data.tasks) {
-              setTasks(payload.new.data.tasks.filter(Boolean));
+              const remoteTasks = payload.new.data.tasks.filter(Boolean);
+              // Never let an empty realtime payload wipe tasks we already have
+              if (remoteTasks.length === 0 && stateRef.current.tasks.length > 0) return;
+              isRemoteUpdateRef.current = true;
+              setTasks(remoteTasks);
               if (payload.new.data.history) setTaskHistory(payload.new.data.history.filter(Boolean));
               
               const remoteTimer = payload.new.data.breakTimer;
@@ -437,13 +450,6 @@ export function TasksProvider({ children }) {
     if (!loaded) return;
     const { tasks: t, taskHistory: th, breakTimer: bt, gamesPlayCredits: gpc } = stateRef.current;
 
-    // Never overwrite Supabase with empty tasks if we know tasks existed
-    if (t.length === 0 && everHadTasksRef.current) {
-      console.warn('saveTasksData: skipping empty-tasks save (tasks existed before)');
-      return;
-    }
-    if (t.length > 0) everHadTasksRef.current = true;
-    
     const timerToSave = bt ? { ...bt, lastUpdated: Date.now() } : null;
 
     if (broadcastRef.current) {
@@ -461,14 +467,18 @@ export function TasksProvider({ children }) {
     await AsyncStorage.setItem(`${storagePrefix}tasks`, JSON.stringify(t));
     await AsyncStorage.setItem(`${storagePrefix}task_history`, JSON.stringify(th));
     await AsyncStorage.setItem(`${storagePrefix}games_play_credits`, String(gpc));
-    await AsyncStorage.setItem(`${storagePrefix}tasks_last_updated`, String(now));
+    // Only advance the timestamp when we actually have tasks — prevents empty-state
+    // from winning future timestamp comparisons and shadowing real cloud data.
+    if (t.length > 0) {
+      await AsyncStorage.setItem(`${storagePrefix}tasks_last_updated`, String(now));
+    }
     if (timerToSave) {
       await AsyncStorage.setItem(`${storagePrefix}break_timer`, JSON.stringify(timerToSave));
     } else {
       await AsyncStorage.removeItem(`${storagePrefix}break_timer`);
     }
 
-    if (user) {
+    if (user && t.length > 0) {
       setIsSyncing(true);
       try {
         const { error } = await supabase
