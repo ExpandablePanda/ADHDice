@@ -27,6 +27,17 @@ export const ENERGY = {
 
 const TasksContext = createContext();
 
+function findInTree(subtasks, taskId) {
+  for (const st of subtasks) {
+    if (String(st.id) === String(taskId)) return st;
+    if (st.children?.length) {
+      const found = findInTree(st.children, taskId);
+      if (found) return found;
+    }
+  }
+  return null;
+}
+
 export function getLocalDateKey(date = new Date()) {
   const d = new Date(date);
   const year = d.getFullYear();

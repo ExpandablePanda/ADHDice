@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useProfile } from './ProfileContext';
@@ -76,7 +76,6 @@ export function EconomyProvider({ children }) {
 
       const localUpdated = await AsyncStorage.getItem(`${storagePrefix}economy_last_updated`);
       const localTs = localUpdated ? parseInt(localUpdated) : 0;
-      const localEconomy = economy; // Capture what we have so far
 
       if (user) {
         try {
@@ -338,7 +337,7 @@ export function EconomyProvider({ children }) {
     }));
   };
 
-  const unlockPrizeByTaskId = (taskId, allTasks = []) => {
+  const unlockPrizeByTaskId = (taskId) => {
     setEconomy(prev => {
       const updated = (prev.vaultPrizes || []).map(p => {
         if (p.status !== 'locked') return p;
